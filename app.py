@@ -2,7 +2,7 @@ import streamlit as st
 import psycopg2
 import os
 import hashlib
-from datetime import datetime, date
+from datetime import datetime, date, time
 from functools import lru_cache
 
 # ─── Configuración de página ───────────────────────────────────────────────────
@@ -27,6 +27,9 @@ st.markdown("""
     .medalla-plata { background: linear-gradient(135deg, #c0c0c0, #a0a0a0); border-radius: 10px; padding: 10px; margin: 5px 0; }
     .medalla-bronce { background: linear-gradient(135deg, #cd7f32, #a0522d); border-radius: 10px; padding: 10px; margin: 5px 0; color: white; }
     .jugador-normal { background: #f0f0f0; border-radius: 10px; padding: 10px; margin: 5px 0; }
+    .partido-bloqueado { opacity: 0.6; background-color: #ffcccc; border-radius: 10px; padding: 10px; margin: 5px 0; }
+    .partido-activo { background-color: #e8f5e9; border-radius: 10px; padding: 10px; margin: 5px 0; border-left: 5px solid #4caf50; }
+    .partido-cerrado { background-color: #f5f5f5; border-radius: 10px; padding: 10px; margin: 5px 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -46,79 +49,93 @@ GRUPOS = {
     "L": ["Inglaterra", "Croacia", "Ghana", "Panama"],
 }
 
+# Horarios de los partidos (hora local de cada sede)
+# Formato: (local, visitante, fase, fecha, sede, hora_inicio)
 CALENDARIO_GRUPOS = [
-    ("Mexico", "Sudafrica", "Grupo A", "2026-06-11", "Ciudad de México"),
-    ("Corea del Sur", "Republica Checa", "Grupo A", "2026-06-11", "Guadalajara"),
-    ("Sudafrica", "Republica Checa", "Grupo A", "2026-06-18", "Atlanta"),
-    ("Mexico", "Corea del Sur", "Grupo A", "2026-06-18", "Guadalajara"),
-    ("Mexico", "Republica Checa", "Grupo A", "2026-06-24", "Ciudad de México"),
-    ("Sudafrica", "Corea del Sur", "Grupo A", "2026-06-24", "Dallas"),
-    ("Canada", "Bosnia y Herzegovina", "Grupo B", "2026-06-12", "Toronto"),
-    ("Qatar", "Suiza", "Grupo B", "2026-06-12", "Vancouver"),
-    ("Bosnia y Herzegovina", "Suiza", "Grupo B", "2026-06-18", "Houston"),
-    ("Canada", "Qatar", "Grupo B", "2026-06-18", "Toronto"),
-    ("Canada", "Suiza", "Grupo B", "2026-06-24", "Vancouver"),
-    ("Bosnia y Herzegovina", "Qatar", "Grupo B", "2026-06-24", "Kansas City"),
-    ("Brasil", "Haiti", "Grupo C", "2026-06-12", "Los Angeles"),
-    ("Marruecos", "Escocia", "Grupo C", "2026-06-12", "Nueva York"),
-    ("Brasil", "Marruecos", "Grupo C", "2026-06-19", "Los Angeles"),
-    ("Escocia", "Haiti", "Grupo C", "2026-06-19", "Philadelphia"),
-    ("Brasil", "Escocia", "Grupo C", "2026-06-25", "San Francisco"),
-    ("Haiti", "Marruecos", "Grupo C", "2026-06-25", "Miami"),
-    ("Estados Unidos", "Paraguay", "Grupo D", "2026-06-13", "Dallas"),
-    ("Australia", "Turquia", "Grupo D", "2026-06-13", "Kansas City"),
-    ("Estados Unidos", "Australia", "Grupo D", "2026-06-19", "New York"),
-    ("Paraguay", "Turquia", "Grupo D", "2026-06-19", "Houston"),
-    ("Estados Unidos", "Turquia", "Grupo D", "2026-06-25", "Miami"),
-    ("Australia", "Paraguay", "Grupo D", "2026-06-25", "Seattle"),
-    ("Alemania", "Costa de Marfil", "Grupo E", "2026-06-13", "Philadelphia"),
-    ("Ecuador", "Curazao", "Grupo E", "2026-06-13", "Boston"),
-    ("Alemania", "Ecuador", "Grupo E", "2026-06-20", "Atlanta"),
-    ("Costa de Marfil", "Curazao", "Grupo E", "2026-06-20", "Dallas"),
-    ("Alemania", "Curazao", "Grupo E", "2026-06-26", "Nueva York"),
-    ("Ecuador", "Costa de Marfil", "Grupo E", "2026-06-26", "Houston"),
-    ("Japon", "Peru", "Grupo F", "2026-06-14", "Seattle"),
-    ("Arabia Saudi", "Rumania", "Grupo F", "2026-06-14", "Miami"),
-    ("Japon", "Arabia Saudi", "Grupo F", "2026-06-20", "Los Angeles"),
-    ("Peru", "Rumania", "Grupo F", "2026-06-20", "San Francisco"),
-    ("Japon", "Rumania", "Grupo F", "2026-06-26", "Boston"),
-    ("Peru", "Arabia Saudi", "Grupo F", "2026-06-26", "Kansas City"),
-    ("Belgica", "Nueva Zelanda", "Grupo G", "2026-06-14", "Atlanta"),
-    ("Iran", "Egipto", "Grupo G", "2026-06-14", "Dallas"),
-    ("Belgica", "Iran", "Grupo G", "2026-06-21", "Nueva York"),
-    ("Egipto", "Nueva Zelanda", "Grupo G", "2026-06-21", "Miami"),
-    ("Belgica", "Egipto", "Grupo G", "2026-06-27", "Philadelphia"),
-    ("Iran", "Nueva Zelanda", "Grupo G", "2026-06-27", "Boston"),
-    ("Espana", "Cabo Verde", "Grupo H", "2026-06-15", "San Francisco"),
-    ("Uruguay", "Arabia Saudi", "Grupo H", "2026-06-15", "Seattle"),
-    ("Espana", "Uruguay", "Grupo H", "2026-06-21", "Los Angeles"),
-    ("Cabo Verde", "Arabia Saudi", "Grupo H", "2026-06-21", "Guadalajara"),
-    ("Espana", "Arabia Saudi", "Grupo H", "2026-06-27", "Dallas"),
-    ("Uruguay", "Cabo Verde", "Grupo H", "2026-06-27", "Montreal"),
-    ("Francia", "Irak", "Grupo I", "2026-06-15", "Houston"),
-    ("Senegal", "Noruega", "Grupo I", "2026-06-15", "Kansas City"),
-    ("Francia", "Senegal", "Grupo I", "2026-06-22", "Miami"),
-    ("Noruega", "Irak", "Grupo I", "2026-06-22", "Philadelphia"),
-    ("Francia", "Noruega", "Grupo I", "2026-06-27", "Atlanta"),
-    ("Irak", "Senegal", "Grupo I", "2026-06-27", "Los Angeles"),
-    ("Argentina", "Argelia", "Grupo J", "2026-06-16", "Dallas"),
-    ("Austria", "Chile", "Grupo J", "2026-06-16", "Nueva York"),
-    ("Argentina", "Austria", "Grupo J", "2026-06-22", "Miami"),
-    ("Chile", "Argelia", "Grupo J", "2026-06-22", "Boston"),
-    ("Argentina", "Chile", "Grupo J", "2026-06-28", "Los Angeles"),
-    ("Argelia", "Austria", "Grupo J", "2026-06-28", "Seattle"),
-    ("Portugal", "Jamaica", "Grupo K", "2026-06-16", "Boston"),
-    ("Colombia", "Uzbekistan", "Grupo K", "2026-06-16", "Houston"),
-    ("Portugal", "Colombia", "Grupo K", "2026-06-23", "Kansas City"),
-    ("Jamaica", "Uzbekistan", "Grupo K", "2026-06-23", "Atlanta"),
-    ("Portugal", "Uzbekistan", "Grupo K", "2026-06-28", "Philadelphia"),
-    ("Colombia", "Jamaica", "Grupo K", "2026-06-28", "Dallas"),
-    ("Inglaterra", "Ghana", "Grupo L", "2026-06-17", "Nueva York"),
-    ("Croacia", "Panama", "Grupo L", "2026-06-17", "San Francisco"),
-    ("Inglaterra", "Croacia", "Grupo L", "2026-06-23", "Philadelphia"),
-    ("Panama", "Ghana", "Grupo L", "2026-06-23", "Houston"),
-    ("Inglaterra", "Panama", "Grupo L", "2026-06-28", "Boston"),
-    ("Ghana", "Croacia", "Grupo L", "2026-06-28", "Kansas City"),
+    # ─── GRUPO A ───
+    ("Mexico", "Sudafrica", "Grupo A", "2026-06-11", "Ciudad de México", "15:00"),
+    ("Corea del Sur", "Republica Checa", "Grupo A", "2026-06-11", "Guadalajara", "18:00"),
+    ("Sudafrica", "Republica Checa", "Grupo A", "2026-06-18", "Atlanta", "14:00"),
+    ("Mexico", "Corea del Sur", "Grupo A", "2026-06-18", "Guadalajara", "20:00"),
+    ("Mexico", "Republica Checa", "Grupo A", "2026-06-24", "Ciudad de México", "16:00"),
+    ("Sudafrica", "Corea del Sur", "Grupo A", "2026-06-24", "Dallas", "19:00"),
+    # ─── GRUPO B ───
+    ("Canada", "Bosnia y Herzegovina", "Grupo B", "2026-06-12", "Toronto", "13:00"),
+    ("Qatar", "Suiza", "Grupo B", "2026-06-12", "Vancouver", "16:00"),
+    ("Bosnia y Herzegovina", "Suiza", "Grupo B", "2026-06-18", "Houston", "18:00"),
+    ("Canada", "Qatar", "Grupo B", "2026-06-18", "Toronto", "20:00"),
+    ("Canada", "Suiza", "Grupo B", "2026-06-24", "Vancouver", "14:00"),
+    ("Bosnia y Herzegovina", "Qatar", "Grupo B", "2026-06-24", "Kansas City", "17:00"),
+    # ─── GRUPO C ───
+    ("Brasil", "Haiti", "Grupo C", "2026-06-12", "Los Angeles", "12:00"),
+    ("Marruecos", "Escocia", "Grupo C", "2026-06-12", "Nueva York", "15:00"),
+    ("Brasil", "Marruecos", "Grupo C", "2026-06-19", "Los Angeles", "14:00"),
+    ("Escocia", "Haiti", "Grupo C", "2026-06-19", "Philadelphia", "17:00"),
+    ("Brasil", "Escocia", "Grupo C", "2026-06-25", "San Francisco", "13:00"),
+    ("Haiti", "Marruecos", "Grupo C", "2026-06-25", "Miami", "16:00"),
+    # ─── GRUPO D ───
+    ("Estados Unidos", "Paraguay", "Grupo D", "2026-06-13", "Dallas", "15:00"),
+    ("Australia", "Turquia", "Grupo D", "2026-06-13", "Kansas City", "18:00"),
+    ("Estados Unidos", "Australia", "Grupo D", "2026-06-19", "New York", "14:00"),
+    ("Paraguay", "Turquia", "Grupo D", "2026-06-19", "Houston", "20:00"),
+    ("Estados Unidos", "Turquia", "Grupo D", "2026-06-25", "Miami", "16:00"),
+    ("Australia", "Paraguay", "Grupo D", "2026-06-25", "Seattle", "19:00"),
+    # ─── GRUPO E ───
+    ("Alemania", "Costa de Marfil", "Grupo E", "2026-06-13", "Philadelphia", "13:00"),
+    ("Ecuador", "Curazao", "Grupo E", "2026-06-13", "Boston", "16:00"),
+    ("Alemania", "Ecuador", "Grupo E", "2026-06-20", "Atlanta", "15:00"),
+    ("Costa de Marfil", "Curazao", "Grupo E", "2026-06-20", "Dallas", "18:00"),
+    ("Alemania", "Curazao", "Grupo E", "2026-06-26", "Nueva York", "14:00"),
+    ("Ecuador", "Costa de Marfil", "Grupo E", "2026-06-26", "Houston", "17:00"),
+    # ─── GRUPO F ───
+    ("Japon", "Peru", "Grupo F", "2026-06-14", "Seattle", "12:00"),
+    ("Arabia Saudi", "Rumania", "Grupo F", "2026-06-14", "Miami", "15:00"),
+    ("Japon", "Arabia Saudi", "Grupo F", "2026-06-20", "Los Angeles", "14:00"),
+    ("Peru", "Rumania", "Grupo F", "2026-06-20", "San Francisco", "17:00"),
+    ("Japon", "Rumania", "Grupo F", "2026-06-26", "Boston", "13:00"),
+    ("Peru", "Arabia Saudi", "Grupo F", "2026-06-26", "Kansas City", "16:00"),
+    # ─── GRUPO G ───
+    ("Belgica", "Nueva Zelanda", "Grupo G", "2026-06-14", "Atlanta", "13:00"),
+    ("Iran", "Egipto", "Grupo G", "2026-06-14", "Dallas", "16:00"),
+    ("Belgica", "Iran", "Grupo G", "2026-06-21", "Nueva York", "15:00"),
+    ("Egipto", "Nueva Zelanda", "Grupo G", "2026-06-21", "Miami", "18:00"),
+    ("Belgica", "Egipto", "Grupo G", "2026-06-27", "Philadelphia", "14:00"),
+    ("Iran", "Nueva Zelanda", "Grupo G", "2026-06-27", "Boston", "17:00"),
+    # ─── GRUPO H ───
+    ("Espana", "Cabo Verde", "Grupo H", "2026-06-15", "San Francisco", "12:00"),
+    ("Uruguay", "Arabia Saudi", "Grupo H", "2026-06-15", "Seattle", "15:00"),
+    ("Espana", "Uruguay", "Grupo H", "2026-06-21", "Los Angeles", "14:00"),
+    ("Cabo Verde", "Arabia Saudi", "Grupo H", "2026-06-21", "Guadalajara", "17:00"),
+    ("Espana", "Arabia Saudi", "Grupo H", "2026-06-27", "Dallas", "13:00"),
+    ("Uruguay", "Cabo Verde", "Grupo H", "2026-06-27", "Montreal", "16:00"),
+    # ─── GRUPO I ───
+    ("Francia", "Irak", "Grupo I", "2026-06-15", "Houston", "13:00"),
+    ("Senegal", "Noruega", "Grupo I", "2026-06-15", "Kansas City", "16:00"),
+    ("Francia", "Senegal", "Grupo I", "2026-06-22", "Miami", "15:00"),
+    ("Noruega", "Irak", "Grupo I", "2026-06-22", "Philadelphia", "18:00"),
+    ("Francia", "Noruega", "Grupo I", "2026-06-27", "Atlanta", "14:00"),
+    ("Irak", "Senegal", "Grupo I", "2026-06-27", "Los Angeles", "17:00"),
+    # ─── GRUPO J ───
+    ("Argentina", "Argelia", "Grupo J", "2026-06-16", "Dallas", "15:00"),
+    ("Austria", "Chile", "Grupo J", "2026-06-16", "Nueva York", "18:00"),
+    ("Argentina", "Austria", "Grupo J", "2026-06-22", "Miami", "14:00"),
+    ("Chile", "Argelia", "Grupo J", "2026-06-22", "Boston", "17:00"),
+    ("Argentina", "Chile", "Grupo J", "2026-06-28", "Los Angeles", "16:00"),
+    ("Argelia", "Austria", "Grupo J", "2026-06-28", "Seattle", "19:00"),
+    # ─── GRUPO K ───
+    ("Portugal", "Jamaica", "Grupo K", "2026-06-16", "Boston", "13:00"),
+    ("Colombia", "Uzbekistan", "Grupo K", "2026-06-16", "Houston", "16:00"),
+    ("Portugal", "Colombia", "Grupo K", "2026-06-23", "Kansas City", "15:00"),
+    ("Jamaica", "Uzbekistan", "Grupo K", "2026-06-23", "Atlanta", "18:00"),
+    ("Portugal", "Uzbekistan", "Grupo K", "2026-06-28", "Philadelphia", "14:00"),
+    ("Colombia", "Jamaica", "Grupo K", "2026-06-28", "Dallas", "17:00"),
+    # ─── GRUPO L ───
+    ("Inglaterra", "Ghana", "Grupo L", "2026-06-17", "Nueva York", "15:00"),
+    ("Croacia", "Panama", "Grupo L", "2026-06-17", "San Francisco", "18:00"),
+    ("Inglaterra", "Croacia", "Grupo L", "2026-06-23", "Philadelphia", "14:00"),
+    ("Panama", "Ghana", "Grupo L", "2026-06-23", "Houston", "17:00"),
+    ("Inglaterra", "Panama", "Grupo L", "2026-06-28", "Boston", "13:00"),
+    ("Ghana", "Croacia", "Grupo L", "2026-06-28", "Kansas City", "16:00"),
 ]
 
 FASES_ELIMINATORIAS = ["16avos de Final", "Octavos de Final", "Cuartos de Final", "Semifinal", "Tercer lugar", "Final"]
@@ -130,6 +147,26 @@ def get_db_connection():
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+# ─── Funciones auxiliares ──────────────────────────────────────────────────────
+def partido_ha_comenzado(fecha_str, hora_str):
+    """Verifica si el partido ya comenzó"""
+    try:
+        fecha_hora_partido = datetime.strptime(f"{fecha_str} {hora_str}", "%Y-%m-%d %H:%M")
+        ahora = datetime.now()
+        # Usar UTC-6 (hora central) como referencia, ajustable según sede
+        return ahora > fecha_hora_partido
+    except:
+        return False
+
+def obtener_horario_partido(partido_id):
+    """Obtiene la fecha y hora de un partido por su ID"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT fecha, hora FROM partidos WHERE id = %s", (partido_id,))
+    row = cur.fetchone()
+    cur.close()
+    return row if row else (None, None)
 
 # ─── Crear tablas ───────────────────────────────────────────────────────────────
 @st.cache_resource
@@ -156,6 +193,7 @@ def init_db():
             goles_visitante INTEGER DEFAULT NULL,
             fase VARCHAR(30) NOT NULL,
             fecha DATE NOT NULL,
+            hora VARCHAR(10) NOT NULL,
             sede VARCHAR(50),
             precargado BOOLEAN DEFAULT FALSE
         );
@@ -168,23 +206,27 @@ def init_db():
             pred_local INTEGER NOT NULL,
             pred_visitante INTEGER NOT NULL,
             puntos INTEGER DEFAULT 0,
+            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(jugador_id, partido_id)
         );
     """)
     
     cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS precargado BOOLEAN DEFAULT FALSE;")
     cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS sede VARCHAR(50);")
+    cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS hora VARCHAR(10) DEFAULT '15:00';")
+    cur.execute("ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP;")
     cur.execute("ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS puntos INTEGER DEFAULT 0;")
     
+    # Precargar calendario
     cur.execute("SELECT COUNT(*) FROM partidos WHERE precargado = TRUE")
     count = cur.fetchone()[0]
     if count == 0:
-        for local, visitante, fase, fecha_str, sede in CALENDARIO_GRUPOS:
+        for local, visitante, fase, fecha_str, sede, hora in CALENDARIO_GRUPOS:
             cur.execute("""
-                INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, sede, precargado)
-                VALUES (%s, %s, %s, %s, %s, TRUE)
+                INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora, sede, precargado)
+                VALUES (%s, %s, %s, %s, %s, %s, TRUE)
                 ON CONFLICT DO NOTHING
-            """, (local, visitante, fase, fecha_str, sede))
+            """, (local, visitante, fase, fecha_str, hora, sede))
     
     conn.commit()
     cur.close()
@@ -203,14 +245,13 @@ def get_todos_jugadores():
 def get_partidos():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, sede FROM partidos ORDER BY fecha, id")
+    cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, hora, sede FROM partidos ORDER BY fecha, hora, id")
     rows = cur.fetchall()
     cur.close()
     return rows
 
 @st.cache_data(ttl=300)
 def get_tabla_posiciones():
-    """Obtiene la tabla completa de posiciones de todos los jugadores"""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -234,11 +275,11 @@ def get_predicciones_jugador(jugador_id):
     cur = conn.cursor()
     cur.execute("""
         SELECT p.id, p.equipo_local, p.equipo_visitante, p.goles_local, p.goles_visitante,
-               p.fase, p.fecha, pr.pred_local, pr.pred_visitante, pr.puntos
+               p.fase, p.fecha, p.hora, pr.pred_local, pr.pred_visitante, pr.puntos, pr.creado_en
         FROM predicciones pr
         JOIN partidos p ON pr.partido_id = p.id
         WHERE pr.jugador_id = %s
-        ORDER BY p.fecha
+        ORDER BY p.fecha, p.hora
     """, (jugador_id,))
     rows = cur.fetchall()
     cur.close()
@@ -252,6 +293,17 @@ def get_prediccion_existente(jugador_id, partido_id):
     row = cur.fetchone()
     cur.close()
     return row
+
+def puede_predecir(partido_fecha, partido_hora):
+    """Verifica si todavía se puede hacer/editar una predicción"""
+    try:
+        fecha_hora_partido = datetime.strptime(f"{partido_fecha} {partido_hora}", "%Y-%m-%d %H:%M")
+        # Se puede predecir hasta 1 hora antes del partido (margen de seguridad)
+        hora_limite = fecha_hora_partido - timedelta(hours=1)
+        ahora = datetime.now()
+        return ahora < hora_limite
+    except:
+        return False
 
 # ─── Funciones de escritura ────────────────────────────────────────────────────
 def registrar_jugador(nombre, email, password):
@@ -282,17 +334,33 @@ def login_jugador(email, password):
     return row
 
 def save_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
+    # Verificar si el partido ya comenzó antes de guardar
     conn = get_db_connection()
     cur = conn.cursor()
+    cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
+    fecha, hora, resultado = cur.fetchone()
+    
+    if resultado is not None:
+        cur.close()
+        return False, "El partido ya tiene resultado ingresado"
+    
+    if not puede_predecir(fecha, hora):
+        cur.close()
+        return False, "Ya no se puede predecir este partido (el plazo cerró 1 hora antes del inicio)"
+    
     cur.execute("""
-        INSERT INTO predicciones (jugador_id, partido_id, pred_local, pred_visitante)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO predicciones (jugador_id, partido_id, pred_local, pred_visitante, creado_en)
+        VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
         ON CONFLICT (jugador_id, partido_id)
-        DO UPDATE SET pred_local=EXCLUDED.pred_local, pred_visitante=EXCLUDED.pred_visitante, puntos=0
-    """, (jugador_id, partido_id, pred_local, pred_visitante))
+        DO UPDATE SET pred_local=EXCLUDED.pred_local, pred_visitante=EXCLUDED.pred_visitante, 
+                      puntos=0, creado_en=CURRENT_TIMESTAMP
+        WHERE predicciones.creado_en > (SELECT fecha || ' ' || hora FROM partidos WHERE id = %s) - INTERVAL '1 hour'
+    """, (jugador_id, partido_id, pred_local, pred_visitante, partido_id))
+    
     conn.commit()
     cur.close()
     st.cache_data.clear()
+    return True, "Predicción guardada"
 
 def set_resultado(partido_id, goles_local, goles_visitante):
     conn = get_db_connection()
@@ -310,12 +378,12 @@ def set_resultado(partido_id, goles_local, goles_visitante):
     cur.close()
     st.cache_data.clear()
 
-def add_partido(local, visitante, fase, fecha, sede=""):
+def add_partido(local, visitante, fase, fecha, hora, sede=""):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, sede) VALUES (%s, %s, %s, %s, %s)",
-        (local, visitante, fase, fecha, sede)
+        "INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora, sede) VALUES (%s, %s, %s, %s, %s, %s)",
+        (local, visitante, fase, fecha, hora, sede)
     )
     conn.commit()
     cur.close()
@@ -327,6 +395,8 @@ def calcular_puntos(pred_l, pred_v, real_l, real_v):
     pg = "L" if pred_l > pred_v else ("V" if pred_v > pred_l else "E")
     rg = "L" if real_l > real_v else ("V" if real_v > real_l else "E")
     return 1 if pg == rg else 0
+
+from datetime import timedelta
 
 # ─── Inicializar DB ─────────────────────────────────────────────────────────────
 try:
@@ -410,7 +480,7 @@ if st.session_state.es_admin:
 menu = st.sidebar.selectbox("📋 Menú", opciones_menu)
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 1. TABLA DE POSICIONES - Aquí se ve quién va ganando
+# 1. TABLA DE POSICIONES
 if menu == "🏆 Tabla de Posiciones":
     st.header("🏆 Tabla de Posiciones")
     st.subheader("Clasificación General")
@@ -420,7 +490,6 @@ if menu == "🏆 Tabla de Posiciones":
     if not tabla:
         st.info("Aún no hay jugadores registrados.")
     else:
-        # Mostrar estadísticas generales
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("👥 Participantes", len(tabla))
@@ -433,34 +502,25 @@ if menu == "🏆 Tabla de Posiciones":
         
         st.markdown("---")
         
-        # Mostrar tabla detallada
         for i, (jid, nombre, total, exactos, ganadores, total_preds) in enumerate(tabla, 1):
-            # Medallas para los primeros 3
             if i == 1:
                 st.markdown(f'<div class="medalla-oro">', unsafe_allow_html=True)
                 icono = "🥇"
-                bg_class = "oro"
             elif i == 2:
                 st.markdown(f'<div class="medalla-plata">', unsafe_allow_html=True)
                 icono = "🥈"
-                bg_class = "plata"
             elif i == 3:
                 st.markdown(f'<div class="medalla-bronce">', unsafe_allow_html=True)
                 icono = "🥉"
-                bg_class = "bronce"
             else:
                 st.markdown(f'<div class="jugador-normal">', unsafe_allow_html=True)
                 icono = f"#{i}"
-                bg_class = "normal"
             
-            # Mostrar jugador
             col1, col2, col3, col4, col5 = st.columns([1, 3, 2, 2, 2])
             with col1:
                 st.markdown(f"## {icono}")
             with col2:
                 st.markdown(f"### {nombre}")
-                if i == 1:
-                    st.caption("👑 Líder del torneo")
             with col3:
                 st.markdown(f"**{total} puntos**")
             with col4:
@@ -480,7 +540,6 @@ elif menu == "📅 Calendario":
     
     partidos = get_partidos()
     
-    # Filtros
     col_filtro1, col_filtro2 = st.columns(2)
     with col_filtro1:
         fases_opciones = list(set([p[5] for p in partidos]))
@@ -489,9 +548,9 @@ elif menu == "📅 Calendario":
         mostrar_solo_futuros = st.checkbox("Mostrar solo partidos futuros", value=False)
     
     hoy = date.today()
+    ahora = datetime.now()
     
-    for pid, local, visitante, gl, gv, fase, fecha, sede in partidos:
-        # Aplicar filtros
+    for pid, local, visitante, gl, gv, fase, fecha, hora, sede in partidos:
         if fase_filter != "Todas" and fase != fase_filter:
             continue
         if mostrar_solo_futuros and fecha < hoy:
@@ -499,36 +558,63 @@ elif menu == "📅 Calendario":
         
         resultado = f"{gl}-{gv}" if gl is not None else "vs"
         
-        # Color según estado
-        if gl is not None:
-            status = "✅"
-        elif fecha < hoy:
-            status = "⏰"
-        else:
-            status = "⏳"
+        # Determinar estado del partido
+        fecha_hora_partido = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time()) if hasattr(fecha, 'year') else None
         
-        st.markdown(f"{status} **{fecha}** — {local} **{resultado}** {visitante} — *{sede}*")
+        if gl is not None:
+            status = "✅ Finalizado"
+            color = "✅"
+        elif fecha_hora_partido and ahora > fecha_hora_partido:
+            status = "⏰ En curso / Finalizado (sin resultado)"
+            color = "⚠️"
+        else:
+            status = "⏳ Próximo"
+            color = "⏳"
+        
+        st.markdown(f"{color} **{fecha} {hora}** — {local} **{resultado}** {visitante} — *{sede}* ({status})")
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 3. PREDICCIONES
+# 3. PREDICCIONES - CON PROTECCIÓN DE HORA
 elif menu == "🎯 Predicciones":
     st.header(f"🎯 Tus Predicciones - {st.session_state.usuario}")
+    st.warning("⚠️ **Importante:** Solo puedes predecir hasta 1 hora antes del inicio del partido. Después de ese plazo, las predicciones quedan cerradas.")
     
     partidos = get_partidos()
-    pendientes = [p for p in partidos if p[3] is None]
+    ahora = datetime.now()
     
-    if not pendientes:
-        st.success("🎉 ¡Ya predijiste todos los partidos!")
-    else:
-        st.info(f"Te faltan {len(pendientes)} partidos por predecir")
+    # Separar partidos por estado
+    partidos_abiertos = []
+    partidos_cerrados = []
+    partidos_finalizados = []
+    
+    for p in partidos:
+        pid, local, visitante, gl, gv, fase, fecha, hora, sede = p
+        fecha_hora_partido = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
         
-        for partido in pendientes:
-            pid, local, visitante, gl, gv, fase, fecha, sede = partido
+        if gl is not None:
+            partidos_finalizados.append(p)
+        elif ahora > fecha_hora_partido:
+            partidos_cerrados.append(p)
+        else:
+            partidos_abiertos.append(p)
+    
+    # Mostrar partidos disponibles para predecir
+    if partidos_abiertos:
+        st.subheader(f"📝 Partidos disponibles para predecir ({len(partidos_abiertos)})")
+        
+        for partido in partidos_abiertos:
+            pid, local, visitante, gl, gv, fase, fecha, hora, sede = partido
             pred = get_prediccion_existente(st.session_state.usuario_id, pid)
             val_l, val_v = pred if pred else (0, 0)
             
+            fecha_hora_partido = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
+            tiempo_restante = fecha_hora_partido - ahora
+            horas_restantes = int(tiempo_restante.total_seconds() // 3600)
+            minutos_restantes = int((tiempo_restante.total_seconds() % 3600) // 60)
+            
             with st.container():
-                col1, col2, col3, col4 = st.columns([2, 1, 2, 1])
+                st.markdown(f'<div class="partido-activo">', unsafe_allow_html=True)
+                col1, col2, col3, col4 = st.columns([2, 1, 2, 2])
                 with col1:
                     st.write(f"**{local}**")
                     new_l = st.number_input("", 0, 10, val_l, key=f"l_{pid}", label_visibility="collapsed")
@@ -538,12 +624,48 @@ elif menu == "🎯 Predicciones":
                     st.write(f"**{visitante}**")
                     new_v = st.number_input("", 0, 10, val_v, key=f"v_{pid}", label_visibility="collapsed")
                 with col4:
-                    if st.button(f"💾", key=f"save_{pid}"):
-                        save_prediccion(st.session_state.usuario_id, pid, new_l, new_v)
-                        st.success(f"✅ {local} {new_l}-{new_v} {visitante}")
-                        st.rerun()
-                st.caption(f"{fase} - {fecha} - {sede}")
+                    if st.button(f"💾 Guardar", key=f"save_{pid}"):
+                        success, msg = save_prediccion(st.session_state.usuario_id, pid, new_l, new_v)
+                        if success:
+                            st.success(f"✅ {msg}: {local} {new_l}-{new_v} {visitante}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {msg}")
+                
+                st.caption(f"📅 {fecha} {hora} - {fase} - 📍{sede}")
+                st.caption(f"⏰ Tiempo para predecir: {horas_restantes}h {minutos_restantes}m")
+                st.markdown('</div>', unsafe_allow_html=True)
                 st.divider()
+    else:
+        st.info("No hay partidos disponibles para predecir en este momento.")
+    
+    # Mostrar partidos cerrados (ya no se puede predecir)
+    if partidos_cerrados:
+        st.subheader(f"🔒 Partidos cerrados (ya no se puede predecir) - {len(partidos_cerrados)}")
+        for partido in partidos_cerrados:
+            pid, local, visitante, gl, gv, fase, fecha, hora, sede = partido
+            pred = get_prediccion_existente(st.session_state.usuario_id, pid)
+            if pred:
+                val_l, val_v = pred
+                st.markdown(f'<div class="partido-bloqueado">', unsafe_allow_html=True)
+                st.write(f"🔒 {local} {val_l}-{val_v} vs {visitante} - {fecha} {hora}")
+                st.caption("⛔ Plazo cerrado - No se pueden modificar las predicciones")
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="partido-bloqueado">', unsafe_allow_html=True)
+                st.write(f"❌ {local} vs {visitante} - {fecha} {hora}")
+                st.caption("⛔ No realizaste predicción a tiempo")
+                st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Mostrar partidos finalizados
+    if partidos_finalizados:
+        st.subheader(f"✅ Partidos finalizados ({len(partidos_finalizados)})")
+        for partido in partidos_finalizados[:10]:  # Mostrar solo los últimos 10
+            pid, local, visitante, gl, gv, fase, fecha, hora, sede = partido
+            pred = get_prediccion_existente(st.session_state.usuario_id, pid)
+            if pred:
+                val_l, val_v = pred
+                st.write(f"✅ {local} {val_l}-{val_v} vs {visitante} → Real: {gl}-{gv}")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 4. MIS RESULTADOS
@@ -569,12 +691,12 @@ elif menu == "📊 Mis resultados":
         st.divider()
         
         for p in preds:
-            pid, local, visitante, gl, gv, fase, fecha, pl, pv, pts = p
+            pid, local, visitante, gl, gv, fase, fecha, hora, pl, pv, pts, creado = p
             if gl is not None:
                 icon = "🟢" if pts == 3 else "🟡" if pts == 1 else "⚫"
                 st.write(f"{icon} **{local}** {pl}-{pv} vs **{visitante}** → Real: {gl}-{gv} → **{pts} pts**")
             else:
-                st.write(f"⏳ **{local}** {pl}-{pv} vs **{visitante}** (Pendiente - {fecha})")
+                st.write(f"⏳ **{local}** {pl}-{pv} vs **{visitante}** ({fecha} {hora})")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 5. JUGADORES
@@ -591,7 +713,6 @@ elif menu == "👥 Jugadores":
             st.write(f"🏆 {total} puntos")
             st.write(f"🟢 {exactos} marcadores exactos")
             st.write(f"🟡 {ganadores} ganadores acertados")
-            st.write(f"📅 Registrado: {reg.strftime('%d/%m/%Y') if hasattr(reg, 'strftime') else reg}")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ADMIN: RESULTADOS
@@ -604,9 +725,9 @@ elif menu == "⚽ Resultados" and st.session_state.es_admin:
     if not pendientes:
         st.success("✅ Todos los partidos ya tienen resultado")
     else:
-        for pid, local, visitante, gl, gv, fase, fecha, sede in pendientes:
+        for pid, local, visitante, gl, gv, fase, fecha, hora, sede in pendientes:
             with st.container():
-                st.markdown(f"**{fase}** - {fecha} - {sede}")
+                st.markdown(f"**{fase}** - {fecha} {hora} - {sede}")
                 col1, col2, col3 = st.columns([2, 2, 1])
                 with col1:
                     gl_new = st.number_input(f"Goles {local}", 0, 20, 0, key=f"gl_{pid}")
@@ -632,12 +753,16 @@ elif menu == "➕ Partido" and st.session_state.es_admin:
             visitante = st.text_input("Equipo Visitante")
         
         fase = st.selectbox("Fase", FASES_ELIMINATORIAS)
-        fecha = st.date_input("Fecha")
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            fecha = st.date_input("Fecha")
+        with col_f2:
+            hora = st.text_input("Hora (HH:MM)", "15:00")
         sede = st.text_input("Sede/Ciudad")
         
         if st.form_submit_button("Agregar Partido"):
-            if local and visitante and local != visitante:
-                add_partido(local, visitante, fase, fecha, sede)
+            if local and visitante and local != visitante and hora:
+                add_partido(local, visitante, fase, fecha, hora, sede)
                 st.success(f"✅ Partido agregado: {local} vs {visitante}")
                 st.rerun()
             else:
