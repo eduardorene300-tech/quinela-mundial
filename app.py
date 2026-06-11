@@ -4,6 +4,7 @@ import psycopg2.pool
 import os
 import hashlib
 from datetime import datetime, date, timedelta
+import pytz
 
 # ─── Configuración de página ───────────────────────────────────────────────────
 st.set_page_config(
@@ -11,6 +12,13 @@ st.set_page_config(
     page_icon="⚽",
     layout="wide"
 )
+
+# ─── ZONA HORARIA DE VENEZUELA ─────────────────────────────────────────────────
+VENEZUELA_TZ = pytz.timezone('America/Caracas')  # UTC-4
+
+def ahora_venezuela():
+    """Retorna la fecha y hora actual en Venezuela"""
+    return datetime.now(VENEZUELA_TZ)
 
 # ─── CSS minimalista ───────────────────────────────────────────────────────────
 st.markdown("""
@@ -120,24 +128,24 @@ class DBConnection:
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# ─── FUNCIÓN PARA VERIFICAR SI EL PARTIDO COMENZÓ (CORREGIDA) ───────────────────
+# ─── FUNCIÓN PARA VERIFICAR SI EL PARTIDO COMENZÓ (CON HORA VENEZUELA) ──────────
 def partido_ha_comenzado(fecha_partido, hora_partido):
-    """Verifica si el partido ya comenzó (comparación correcta con fecha actual)"""
+    """Verifica si el partido ya comenzó usando hora de Venezuela"""
     try:
-        ahora = datetime.now()
+        ahora = ahora_venezuela()
         
-        # Convertir a datetime
+        # Convertir fecha del partido a datetime con zona horaria
         if isinstance(fecha_partido, str):
-            fecha_hora_partido = datetime.strptime(f"{fecha_partido} {hora_partido}", "%Y-%m-%d %H:%M")
+            fecha_hora_str = f"{fecha_partido} {hora_partido}"
+            fecha_hora_partido = datetime.strptime(fecha_hora_str, "%Y-%m-%d %H:%M")
         else:
             fecha_hora_partido = datetime.combine(fecha_partido, datetime.strptime(hora_partido, "%H:%M").time())
         
-        # Si la fecha del partido es POSTERIOR a ahora → NO ha comenzado
-        if fecha_hora_partido > ahora:
-            return False
+        # Asignar zona horaria de Venezuela (los partidos son en USA, pero usamos hora Venezuela como referencia)
+        fecha_hora_partido = VENEZUELA_TZ.localize(fecha_hora_partido)
         
-        # Si la fecha ya pasó o es hoy a esta hora → YA COMENZÓ
-        return True
+        # Si la fecha del partido es POSTERIOR a ahora → NO ha comenzado
+        return fecha_hora_partido <= ahora
     except Exception as e:
         return False  # Por defecto, no bloquear
 
@@ -288,7 +296,6 @@ def guardar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
             if goles is not None:
                 return False, "Partido ya finalizado"
             
-            # Verificar si el partido ya comenzó (solo bloquear si es hoy o pasado)
             if partido_ha_comenzado(fecha, hora):
                 return False, "El partido ya comenzó"
             
@@ -384,7 +391,7 @@ if "user_id" not in st.session_state:
 # ─── HEADER ────────────────────────────────────────────────────────────────────
 st.title("⚽ Quiniela Mundial 2026")
 st.caption("11 Jun - 19 Jul 2026 | USA · México · Canadá")
-st.info("📅 Los partidos son en 2026. Puedes hacer todas tus predicciones desde ahora.")
+st.info(f"📅 Hoy es {ahora_venezuela().strftime('%d/%m/%Y %H:%M:%S')} (Hora de Venezuela)")
 
 # ─── LOGIN / REGISTRO ──────────────────────────────────────────────────────────
 if not st.session_state.user_id:
@@ -481,7 +488,7 @@ elif menu == "🎯 Predecir":
     st.divider()
     
     partidos = get_partidos()
-    ahora = datetime.now()
+    ahora = ahora_venezuela()
     
     # Mostrar TODOS los partidos que NO tienen resultado
     disponibles = [p for p in partidos if p[3] is None]
@@ -496,17 +503,22 @@ elif menu == "🎯 Predecir":
             val_l = pred[0] if pred else 0
             val_v = pred[1] if pred else 0
             
-            # Calcular tiempo restante (solo si es en el futuro)
+            # Calcular si el partido ya comenzó (usando hora Venezuela)
             fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-            if fecha_hora > ahora:
-                resto = fecha_hora - ahora
+            fecha_hora_tz = VENEZUELA_TZ.localize(fecha_hora)
+            ya_comenzo = fecha_hora_tz <= ahora
+            
+            if ya_comenzo:
+                tiempo_text = "🔴 Partido en curso / Cerrado"
+                estado = "🔴 Cerrado"
+                disabled = True
+            else:
+                resto = fecha_hora_tz - ahora
                 horas = int(resto.total_seconds() // 3600)
                 mins = int((resto.total_seconds() % 3600) // 60)
                 tiempo_text = f"⏰ {horas}h {mins}m"
                 estado = "🟢 Disponible"
-            else:
-                tiempo_text = "🔴 Partido en curso"
-                estado = "🔴 Cerrado"
+                disabled = False
             
             if tiene_pred:
                 st.markdown(f"📝 **{local} vs {visitante}** - Actual: {val_l}-{val_v} | {estado}")
@@ -516,13 +528,13 @@ elif menu == "🎯 Predecir":
             col1, col2, col3, col4, col5 = st.columns([2, 1, 2, 1, 1])
             
             with col1:
-                g_l = st.number_input(f"{local}", 0, 10, val_l, key=f"l_{pid}", label_visibility="collapsed", disabled=fecha_hora <= ahora)
+                g_l = st.number_input(f"{local}", 0, 10, val_l, key=f"l_{pid}", label_visibility="collapsed", disabled=disabled)
             with col2:
                 st.write("vs")
             with col3:
-                g_v = st.number_input(f"{visitante}", 0, 10, val_v, key=f"v_{pid}", label_visibility="collapsed", disabled=fecha_hora <= ahora)
+                g_v = st.number_input(f"{visitante}", 0, 10, val_v, key=f"v_{pid}", label_visibility="collapsed", disabled=disabled)
             with col4:
-                if fecha_hora > ahora:
+                if not disabled:
                     if st.button("💾", key=f"s_{pid}", use_container_width=True):
                         ok, msg = guardar_prediccion(st.session_state.user_id, pid, g_l, g_v)
                         if ok:
@@ -533,7 +545,7 @@ elif menu == "🎯 Predecir":
                 else:
                     st.button("💾", disabled=True, key=f"s_{pid}_disabled", use_container_width=True)
             with col5:
-                if tiene_pred and fecha_hora > ahora:
+                if tiene_pred and not disabled:
                     if st.button("🗑️", key=f"d_{pid}", use_container_width=True):
                         ok, msg = borrar_prediccion(st.session_state.user_id, pid)
                         if ok:
@@ -572,8 +584,9 @@ elif menu == "📊 Mis resultados":
                 st.write(f"{icon} {local} {pl}-{pv} vs {visitante} → Real: {gl}-{gv} ({pts} pts)")
             else:
                 fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-                ahora = datetime.now()
-                if fecha_hora > ahora:
+                fecha_hora_tz = VENEZUELA_TZ.localize(fecha_hora)
+                ahora = ahora_venezuela()
+                if fecha_hora_tz > ahora:
                     col1, col2 = st.columns([4, 1])
                     with col1:
                         st.write(f"⏳ {local} {pl}-{pv} vs {visitante} ({fecha.day}/{fecha.month} {hora})")
@@ -594,7 +607,7 @@ elif menu == "📅 Calendario":
     st.header("📅 Calendario")
     
     partidos = get_partidos()
-    ahora = datetime.now()
+    ahora = ahora_venezuela()
     
     for p in partidos:
         pid, local, visitante, gl, gv, fase, fecha, hora = p
@@ -605,7 +618,8 @@ elif menu == "📅 Calendario":
         else:
             resultado = "vs"
             fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-            if fecha_hora <= ahora:
+            fecha_hora_tz = VENEZUELA_TZ.localize(fecha_hora)
+            if fecha_hora_tz <= ahora:
                 icon = "🔴"
             else:
                 icon = "⏳"
