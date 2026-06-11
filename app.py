@@ -624,16 +624,24 @@ elif menu == "🎯 Hacer mis Predicciones":
     hoy = date.today()
 
     def to_date(val):
-        if isinstance(val, date):
-            return val
-        if isinstance(val, datetime):
-            return val.date()
-        if isinstance(val, str):
-            return datetime.strptime(val[:10], "%Y-%m-%d").date()
-        return hoy  # fallback
+        try:
+            if val is None:
+                return hoy
+            if hasattr(val, 'date') and callable(val.date):
+                return val.date()
+            if hasattr(val, 'year'):  # already a date
+                return val
+            return datetime.strptime(str(val)[:10], "%Y-%m-%d").date()
+        except Exception:
+            return hoy
 
-    partidos_pendientes = [p for p in partidos if p[3] is None and to_date(p[6]) >= hoy]
-    partidos_pasados_sin_pred = [p for p in partidos if p[3] is None and to_date(p[6]) < hoy]
+    try:
+        partidos_pendientes = [p for p in partidos if p[3] is None and to_date(p[6]) >= hoy]
+        partidos_pasados_sin_pred = [p for p in partidos if p[3] is None and to_date(p[6]) < hoy]
+    except Exception:
+        # Si la comparacion de fechas falla por cualquier razon, mostrar todos sin resultado
+        partidos_pendientes = [p for p in partidos if p[3] is None]
+        partidos_pasados_sin_pred = []
 
     if not partidos_pendientes and not partidos_pasados_sin_pred:
         st.success("¡Ya predijiste todos los partidos disponibles! 🎉")
