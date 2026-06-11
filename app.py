@@ -26,86 +26,74 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─── DATOS ÚNICOS (SIN DUPLICADOS) ─────────────────────────────────────────────
+# ─── DATOS ÚNICOS ──────────────────────────────────────────────────────────────
 CALENDARIO_GRUPOS = [
-    # Grupo A
     ("Mexico", "Sudafrica", "Grupo A", "2026-06-11", "15:00"),
     ("Corea del Sur", "Republica Checa", "Grupo A", "2026-06-11", "18:00"),
     ("Sudafrica", "Republica Checa", "Grupo A", "2026-06-18", "14:00"),
     ("Mexico", "Corea del Sur", "Grupo A", "2026-06-18", "20:00"),
     ("Mexico", "Republica Checa", "Grupo A", "2026-06-24", "16:00"),
     ("Sudafrica", "Corea del Sur", "Grupo A", "2026-06-24", "19:00"),
-    # Grupo B
     ("Canada", "Bosnia y Herzegovina", "Grupo B", "2026-06-12", "13:00"),
     ("Qatar", "Suiza", "Grupo B", "2026-06-12", "16:00"),
     ("Bosnia y Herzegovina", "Suiza", "Grupo B", "2026-06-18", "18:00"),
     ("Canada", "Qatar", "Grupo B", "2026-06-18", "20:00"),
     ("Canada", "Suiza", "Grupo B", "2026-06-24", "14:00"),
     ("Bosnia y Herzegovina", "Qatar", "Grupo B", "2026-06-24", "17:00"),
-    # Grupo C
     ("Brasil", "Haiti", "Grupo C", "2026-06-12", "12:00"),
     ("Marruecos", "Escocia", "Grupo C", "2026-06-12", "15:00"),
     ("Brasil", "Marruecos", "Grupo C", "2026-06-19", "14:00"),
     ("Escocia", "Haiti", "Grupo C", "2026-06-19", "17:00"),
     ("Brasil", "Escocia", "Grupo C", "2026-06-25", "13:00"),
     ("Haiti", "Marruecos", "Grupo C", "2026-06-25", "16:00"),
-    # Grupo D
     ("Estados Unidos", "Paraguay", "Grupo D", "2026-06-13", "15:00"),
     ("Australia", "Turquia", "Grupo D", "2026-06-13", "18:00"),
     ("Estados Unidos", "Australia", "Grupo D", "2026-06-19", "14:00"),
     ("Paraguay", "Turquia", "Grupo D", "2026-06-19", "20:00"),
     ("Estados Unidos", "Turquia", "Grupo D", "2026-06-25", "16:00"),
     ("Australia", "Paraguay", "Grupo D", "2026-06-25", "19:00"),
-    # Grupo E
     ("Alemania", "Costa de Marfil", "Grupo E", "2026-06-13", "13:00"),
     ("Ecuador", "Curazao", "Grupo E", "2026-06-13", "16:00"),
     ("Alemania", "Ecuador", "Grupo E", "2026-06-20", "15:00"),
     ("Costa de Marfil", "Curazao", "Grupo E", "2026-06-20", "18:00"),
     ("Alemania", "Curazao", "Grupo E", "2026-06-26", "14:00"),
     ("Ecuador", "Costa de Marfil", "Grupo E", "2026-06-26", "17:00"),
-    # Grupo F
     ("Japon", "Peru", "Grupo F", "2026-06-14", "12:00"),
     ("Arabia Saudi", "Rumania", "Grupo F", "2026-06-14", "15:00"),
     ("Japon", "Arabia Saudi", "Grupo F", "2026-06-20", "14:00"),
     ("Peru", "Rumania", "Grupo F", "2026-06-20", "17:00"),
     ("Japon", "Rumania", "Grupo F", "2026-06-26", "13:00"),
     ("Peru", "Arabia Saudi", "Grupo F", "2026-06-26", "16:00"),
-    # Grupo G
     ("Belgica", "Nueva Zelanda", "Grupo G", "2026-06-14", "13:00"),
     ("Iran", "Egipto", "Grupo G", "2026-06-14", "16:00"),
     ("Belgica", "Iran", "Grupo G", "2026-06-21", "15:00"),
     ("Egipto", "Nueva Zelanda", "Grupo G", "2026-06-21", "18:00"),
     ("Belgica", "Egipto", "Grupo G", "2026-06-27", "14:00"),
     ("Iran", "Nueva Zelanda", "Grupo G", "2026-06-27", "17:00"),
-    # Grupo H
     ("Espana", "Cabo Verde", "Grupo H", "2026-06-15", "12:00"),
     ("Uruguay", "Arabia Saudi", "Grupo H", "2026-06-15", "15:00"),
     ("Espana", "Uruguay", "Grupo H", "2026-06-21", "14:00"),
     ("Cabo Verde", "Arabia Saudi", "Grupo H", "2026-06-21", "17:00"),
     ("Espana", "Arabia Saudi", "Grupo H", "2026-06-27", "13:00"),
     ("Uruguay", "Cabo Verde", "Grupo H", "2026-06-27", "16:00"),
-    # Grupo I
     ("Francia", "Irak", "Grupo I", "2026-06-15", "13:00"),
     ("Senegal", "Noruega", "Grupo I", "2026-06-15", "16:00"),
     ("Francia", "Senegal", "Grupo I", "2026-06-22", "15:00"),
     ("Noruega", "Irak", "Grupo I", "2026-06-22", "18:00"),
     ("Francia", "Noruega", "Grupo I", "2026-06-27", "14:00"),
     ("Irak", "Senegal", "Grupo I", "2026-06-27", "17:00"),
-    # Grupo J
     ("Argentina", "Argelia", "Grupo J", "2026-06-16", "15:00"),
     ("Austria", "Chile", "Grupo J", "2026-06-16", "18:00"),
     ("Argentina", "Austria", "Grupo J", "2026-06-22", "14:00"),
     ("Chile", "Argelia", "Grupo J", "2026-06-22", "17:00"),
     ("Argentina", "Chile", "Grupo J", "2026-06-28", "16:00"),
     ("Argelia", "Austria", "Grupo J", "2026-06-28", "19:00"),
-    # Grupo K
     ("Portugal", "Jamaica", "Grupo K", "2026-06-16", "13:00"),
     ("Colombia", "Uzbekistan", "Grupo K", "2026-06-16", "16:00"),
     ("Portugal", "Colombia", "Grupo K", "2026-06-23", "15:00"),
     ("Jamaica", "Uzbekistan", "Grupo K", "2026-06-23", "18:00"),
     ("Portugal", "Uzbekistan", "Grupo K", "2026-06-28", "14:00"),
     ("Colombia", "Jamaica", "Grupo K", "2026-06-28", "17:00"),
-    # Grupo L
     ("Inglaterra", "Ghana", "Grupo L", "2026-06-17", "15:00"),
     ("Croacia", "Panama", "Grupo L", "2026-06-17", "18:00"),
     ("Inglaterra", "Croacia", "Grupo L", "2026-06-23", "14:00"),
@@ -116,10 +104,15 @@ CALENDARIO_GRUPOS = [
 
 FASES_ELIMINATORIAS = ["Octavos", "Cuartos", "Semifinal", "Final"]
 
-# ─── CONEXIÓN ÚNICA GLOBAL ─────────────────────────────────────────────────────
-@st.cache_resource
+# ─── VARIABLE GLOBAL DE CONEXIÓN ───────────────────────────────────────────────
+# NO cerramos esta conexión NUNCA
+_conn = None
+
 def get_db_connection():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    global _conn
+    if _conn is None or _conn.closed:
+        _conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    return _conn
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -137,8 +130,7 @@ def partido_ha_comenzado(fecha_partido, hora_partido):
     except:
         return False
 
-# ─── INICIALIZAR BD (CON LIMPIEZA DE DUPLICADOS) ───────────────────────────────
-@st.cache_resource
+# ─── INICIALIZAR BD ────────────────────────────────────────────────────────────
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -164,8 +156,7 @@ def init_db():
             goles_visitante INTEGER DEFAULT NULL,
             fase VARCHAR(30) NOT NULL,
             fecha DATE NOT NULL,
-            hora VARCHAR(10) DEFAULT '15:00',
-            UNIQUE(equipo_local, equipo_visitante, fecha, hora)
+            hora VARCHAR(10) DEFAULT '15:00'
         )
     """)
     
@@ -189,33 +180,80 @@ def init_db():
         WHERE NOT EXISTS (SELECT 1 FROM jugadores WHERE email = 'admin@quiniela.com')
     """, (admin_pass,))
     
-    # Limpiar partidos existentes para evitar duplicados
-    cur.execute("DELETE FROM partidos")
+    # Verificar si ya hay partidos
+    cur.execute("SELECT COUNT(*) FROM partidos")
+    count = cur.fetchone()[0]
     
-    # Insertar partidos únicos
-    for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
-        cur.execute("""
-            INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (local, visitante, fase, fecha_str, hora))
+    if count == 0:
+        for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
+            cur.execute("""
+                INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (local, visitante, fase, fecha_str, hora))
     
     conn.commit()
-    return True
+    # NO cerramos la conexión
 
-# ─── FUNCIONES DE CONSULTA ─────────────────────────────────────────────────────
+# ─── FUNCIONES DE CONSULTA (CON REINTENTO) ─────────────────────────────────────
+def ejecutar_consulta(sql, params=None):
+    """Ejecuta una consulta y maneja la reconexión automática"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        if params:
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql)
+        return cur.fetchall()
+    except Exception as e:
+        # Si hay error, intentar reconectar
+        global _conn
+        _conn = None
+        conn = get_db_connection()
+        cur = conn.cursor()
+        if params:
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql)
+        return cur.fetchall()
+
+def ejecutar_comando(sql, params=None):
+    """Ejecuta un comando y maneja la reconexión automática"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        if params:
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql)
+        conn.commit()
+        st.cache_data.clear()
+        return True, None
+    except Exception as e:
+        # Si hay error, intentar reconectar
+        global _conn
+        _conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            if params:
+                cur.execute(sql, params)
+            else:
+                cur.execute(sql)
+            conn.commit()
+            st.cache_data.clear()
+            return True, None
+        except Exception as e2:
+            return False, str(e2)
+
+# ─── FUNCIONES DE NEGOCIO ──────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
 def get_partidos():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, hora FROM partidos ORDER BY fecha, hora")
-    rows = cur.fetchall()
-    return rows
+    return ejecutar_consulta("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, hora FROM partidos ORDER BY fecha, hora")
 
 @st.cache_data(ttl=600)
 def get_tabla_posiciones():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
+    return ejecutar_consulta("""
         SELECT j.nombre, COALESCE(SUM(pr.puntos), 0) as total,
                COUNT(CASE WHEN pr.puntos = 3 THEN 1 END) as exactos,
                COUNT(CASE WHEN pr.puntos = 1 THEN 1 END) as ganadores
@@ -224,14 +262,10 @@ def get_tabla_posiciones():
         GROUP BY j.id, j.nombre
         ORDER BY total DESC, exactos DESC
     """)
-    rows = cur.fetchall()
-    return rows
 
 @st.cache_data(ttl=600)
 def get_mis_predicciones(jugador_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
+    return ejecutar_consulta("""
         SELECT p.id, p.equipo_local, p.equipo_visitante, p.goles_local, p.goles_visitante,
                p.fase, p.fecha, p.hora, pr.pred_local, pr.pred_visitante, pr.puntos
         FROM predicciones pr
@@ -239,17 +273,12 @@ def get_mis_predicciones(jugador_id):
         WHERE pr.jugador_id = %s
         ORDER BY p.fecha, p.hora
     """, (jugador_id,))
-    rows = cur.fetchall()
-    return rows
 
 def get_prediccion(jugador_id, partido_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT pred_local, pred_visitante FROM predicciones WHERE jugador_id=%s AND partido_id=%s",
-                (jugador_id, partido_id))
-    return cur.fetchone()
+    rows = ejecutar_consulta("SELECT pred_local, pred_visitante FROM predicciones WHERE jugador_id=%s AND partido_id=%s",
+                             (jugador_id, partido_id))
+    return rows[0] if rows else None
 
-# ─── FUNCIONES DE ESCRITURA ────────────────────────────────────────────────────
 def registrar_usuario(nombre, email, password):
     try:
         conn = get_db_connection()
@@ -266,21 +295,20 @@ def registrar_usuario(nombre, email, password):
         return None, str(e)
 
 def login(email, password):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
+    rows = ejecutar_consulta(
         "SELECT id, nombre, es_admin FROM jugadores WHERE email=%s AND password_hash=%s",
         (email, hash_password(password))
     )
-    return cur.fetchone()
+    return rows[0] if rows else None
 
 def guardar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        # Verificar estado del partido
+        partido = ejecutar_consulta("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
+        if not partido:
+            return False, "Partido no encontrado"
         
-        cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
-        fecha, hora, goles = cur.fetchone()
+        fecha, hora, goles = partido[0]
         
         if goles is not None:
             return False, "Partido ya finalizado"
@@ -288,26 +316,27 @@ def guardar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
         if partido_ha_comenzado(fecha, hora):
             return False, "El partido ya comenzó"
         
-        cur.execute("""
+        ok, err = ejecutar_comando("""
             INSERT INTO predicciones (jugador_id, partido_id, pred_local, pred_visitante)
             VALUES (%s, %s, %s, %s)
             ON CONFLICT (jugador_id, partido_id)
             DO UPDATE SET pred_local=EXCLUDED.pred_local, pred_visitante=EXCLUDED.pred_visitante, puntos=0
         """, (jugador_id, partido_id, pred_local, pred_visitante))
         
-        conn.commit()
-        st.cache_data.clear()
-        return True, "Predicción guardada"
+        if ok:
+            st.cache_data.clear()
+            return True, "Predicción guardada"
+        return False, err
     except Exception as e:
         return False, str(e)
 
 def borrar_prediccion(jugador_id, partido_id):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+        partido = ejecutar_consulta("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
+        if not partido:
+            return False, "Partido no encontrado"
         
-        cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
-        fecha, hora, goles = cur.fetchone()
+        fecha, hora, goles = partido[0]
         
         if goles is not None:
             return False, "No se puede borrar: el partido ya finalizó"
@@ -315,55 +344,47 @@ def borrar_prediccion(jugador_id, partido_id):
         if partido_ha_comenzado(fecha, hora):
             return False, "No se puede borrar: el partido ya comenzó"
         
-        cur.execute("DELETE FROM predicciones WHERE jugador_id=%s AND partido_id=%s", (jugador_id, partido_id))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "Predicción borrada"
+        ok, err = ejecutar_comando("DELETE FROM predicciones WHERE jugador_id=%s AND partido_id=%s", (jugador_id, partido_id))
+        
+        if ok:
+            st.cache_data.clear()
+            return True, "Predicción borrada"
+        return False, err
     except Exception as e:
         return False, str(e)
 
 def limpiar_todas_predicciones_usuario(jugador_id):
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM predicciones WHERE jugador_id=%s", (jugador_id,))
-        conn.commit()
+    ok, err = ejecutar_comando("DELETE FROM predicciones WHERE jugador_id=%s", (jugador_id,))
+    if ok:
         st.cache_data.clear()
         return True, "Todas tus predicciones fueron eliminadas"
-    except Exception as e:
-        return False, str(e)
+    return False, err
 
 def set_resultado(partido_id, goles_local, goles_visitante):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    ok, err = ejecutar_comando("UPDATE partidos SET goles_local=%s, goles_visitante=%s WHERE id=%s",
+                               (goles_local, goles_visitante, partido_id))
+    if not ok:
+        return
     
-    cur.execute("UPDATE partidos SET goles_local=%s, goles_visitante=%s WHERE id=%s",
-                (goles_local, goles_visitante, partido_id))
-    
-    cur.execute("SELECT jugador_id, pred_local, pred_visitante FROM predicciones WHERE partido_id=%s", (partido_id,))
-    for jugador_id, pl, pv in cur.fetchall():
+    # Actualizar puntos
+    predicciones = ejecutar_consulta("SELECT jugador_id, pred_local, pred_visitante FROM predicciones WHERE partido_id=%s", (partido_id,))
+    for jugador_id, pl, pv in predicciones:
         if pl == goles_local and pv == goles_visitante:
             puntos = 3
         elif (pl > pv and goles_local > goles_visitante) or (pl < pv and goles_local < goles_visitante) or (pl == pv and goles_local == goles_visitante):
             puntos = 1
         else:
             puntos = 0
-        cur.execute("UPDATE predicciones SET puntos=%s WHERE partido_id=%s AND jugador_id=%s", 
-                   (puntos, partido_id, jugador_id))
+        ejecutar_comando("UPDATE predicciones SET puntos=%s WHERE partido_id=%s AND jugador_id=%s", 
+                        (puntos, partido_id, jugador_id))
     
-    conn.commit()
     st.cache_data.clear()
 
 def add_partido(local, visitante, fase, fecha, hora):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
+    ejecutar_comando("""
         INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
         VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (equipo_local, equipo_visitante, fecha, hora) DO NOTHING
     """, (local, visitante, fase, fecha, hora))
-    conn.commit()
-    st.cache_data.clear()
 
 # ─── INICIALIZAR ───────────────────────────────────────────────────────────────
 try:
@@ -439,11 +460,10 @@ with st.sidebar:
         st.divider()
         st.markdown("**🔧 Admin**")
         admin_menu = st.radio("", ["⚽ Resultados", "➕ Partido"], label_visibility="collapsed")
-
-# ════════════════════════════════════════════════════════════════════════════════
-# Mostrar cantidad de partidos (para verificar que no hay duplicados)
-partidos_count = len(get_partidos())
-st.sidebar.caption(f"📊 {partidos_count} partidos cargados")
+    
+    # Mostrar cantidad de partidos
+    partidos = get_partidos()
+    st.caption(f"📊 {len(partidos)} partidos cargados")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 1. TABLA DE POSICIONES
