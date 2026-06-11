@@ -204,15 +204,53 @@ def init_db():
     conn.close()
 
 def migrar_db():
-    """Agrega columnas nuevas a tablas existentes si no existen (migracion segura)."""
+    """Agrega columnas y tablas nuevas si no existen (migracion segura)."""
     conn = get_connection()
     cur = conn.cursor()
+
+    # --- Tabla partidos: columnas nuevas ---
+    cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS precargado BOOLEAN DEFAULT FALSE;")
+    cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS sede VARCHAR(50);")
+
+    # --- Tabla jugadores: crearla si no existe (bases sin registro) ---
     cur.execute("""
-        ALTER TABLE partidos ADD COLUMN IF NOT EXISTS precargado BOOLEAN DEFAULT FALSE;
+        CREATE TABLE IF NOT EXISTS jugadores (
+            id SERIAL PRIMARY KEY,
+            nombre VARCHAR(50) UNIQUE NOT NULL,
+            email VARCHAR(100) UNIQUE NOT NULL,
+            password_hash VARCHAR(64) NOT NULL,
+            es_admin BOOLEAN DEFAULT FALSE,
+            registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
+
+    # --- Tabla predicciones: reconstruir si viene del esquema viejo ---
+    # El esquema viejo usaba columna "usuario" (texto), el nuevo usa jugador_id (FK)
     cur.execute("""
-        ALTER TABLE partidos ADD COLUMN IF NOT EXISTS sede VARCHAR(50);
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name='predicciones';
     """)
+    cols = {row[0] for row in cur.fetchall()}
+
+    if 'jugador_id' not in cols:
+        # Esquema viejo detectado: renombrar tabla vieja y crear la nueva
+        cur.execute("ALTER TABLE predicciones RENAME TO predicciones_old;")
+        cur.execute("""
+            CREATE TABLE predicciones (
+                id SERIAL PRIMARY KEY,
+                jugador_id INTEGER REFERENCES jugadores(id),
+                partido_id INTEGER REFERENCES partidos(id),
+                pred_local INTEGER NOT NULL,
+                pred_visitante INTEGER NOT NULL,
+                puntos INTEGER DEFAULT 0,
+                UNIQUE(jugador_id, partido_id)
+            );
+        """)
+        # No migramos datos viejos porque usaban nombre de texto sin FK
+    else:
+        # Tabla nueva: asegurarse de que puntos existe
+        cur.execute("ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS puntos INTEGER DEFAULT 0;")
+
     conn.commit()
     cur.close()
     conn.close()
