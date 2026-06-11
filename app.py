@@ -26,74 +26,86 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─── DATOS ─────────────────────────────────────────────────────────────────────
+# ─── DATOS ÚNICOS (SIN DUPLICADOS) ─────────────────────────────────────────────
 CALENDARIO_GRUPOS = [
+    # Grupo A
     ("Mexico", "Sudafrica", "Grupo A", "2026-06-11", "15:00"),
     ("Corea del Sur", "Republica Checa", "Grupo A", "2026-06-11", "18:00"),
     ("Sudafrica", "Republica Checa", "Grupo A", "2026-06-18", "14:00"),
     ("Mexico", "Corea del Sur", "Grupo A", "2026-06-18", "20:00"),
     ("Mexico", "Republica Checa", "Grupo A", "2026-06-24", "16:00"),
     ("Sudafrica", "Corea del Sur", "Grupo A", "2026-06-24", "19:00"),
+    # Grupo B
     ("Canada", "Bosnia y Herzegovina", "Grupo B", "2026-06-12", "13:00"),
     ("Qatar", "Suiza", "Grupo B", "2026-06-12", "16:00"),
     ("Bosnia y Herzegovina", "Suiza", "Grupo B", "2026-06-18", "18:00"),
     ("Canada", "Qatar", "Grupo B", "2026-06-18", "20:00"),
     ("Canada", "Suiza", "Grupo B", "2026-06-24", "14:00"),
     ("Bosnia y Herzegovina", "Qatar", "Grupo B", "2026-06-24", "17:00"),
+    # Grupo C
     ("Brasil", "Haiti", "Grupo C", "2026-06-12", "12:00"),
     ("Marruecos", "Escocia", "Grupo C", "2026-06-12", "15:00"),
     ("Brasil", "Marruecos", "Grupo C", "2026-06-19", "14:00"),
     ("Escocia", "Haiti", "Grupo C", "2026-06-19", "17:00"),
     ("Brasil", "Escocia", "Grupo C", "2026-06-25", "13:00"),
     ("Haiti", "Marruecos", "Grupo C", "2026-06-25", "16:00"),
+    # Grupo D
     ("Estados Unidos", "Paraguay", "Grupo D", "2026-06-13", "15:00"),
     ("Australia", "Turquia", "Grupo D", "2026-06-13", "18:00"),
     ("Estados Unidos", "Australia", "Grupo D", "2026-06-19", "14:00"),
     ("Paraguay", "Turquia", "Grupo D", "2026-06-19", "20:00"),
     ("Estados Unidos", "Turquia", "Grupo D", "2026-06-25", "16:00"),
     ("Australia", "Paraguay", "Grupo D", "2026-06-25", "19:00"),
+    # Grupo E
     ("Alemania", "Costa de Marfil", "Grupo E", "2026-06-13", "13:00"),
     ("Ecuador", "Curazao", "Grupo E", "2026-06-13", "16:00"),
     ("Alemania", "Ecuador", "Grupo E", "2026-06-20", "15:00"),
     ("Costa de Marfil", "Curazao", "Grupo E", "2026-06-20", "18:00"),
     ("Alemania", "Curazao", "Grupo E", "2026-06-26", "14:00"),
     ("Ecuador", "Costa de Marfil", "Grupo E", "2026-06-26", "17:00"),
+    # Grupo F
     ("Japon", "Peru", "Grupo F", "2026-06-14", "12:00"),
     ("Arabia Saudi", "Rumania", "Grupo F", "2026-06-14", "15:00"),
     ("Japon", "Arabia Saudi", "Grupo F", "2026-06-20", "14:00"),
     ("Peru", "Rumania", "Grupo F", "2026-06-20", "17:00"),
     ("Japon", "Rumania", "Grupo F", "2026-06-26", "13:00"),
     ("Peru", "Arabia Saudi", "Grupo F", "2026-06-26", "16:00"),
+    # Grupo G
     ("Belgica", "Nueva Zelanda", "Grupo G", "2026-06-14", "13:00"),
     ("Iran", "Egipto", "Grupo G", "2026-06-14", "16:00"),
     ("Belgica", "Iran", "Grupo G", "2026-06-21", "15:00"),
     ("Egipto", "Nueva Zelanda", "Grupo G", "2026-06-21", "18:00"),
     ("Belgica", "Egipto", "Grupo G", "2026-06-27", "14:00"),
     ("Iran", "Nueva Zelanda", "Grupo G", "2026-06-27", "17:00"),
+    # Grupo H
     ("Espana", "Cabo Verde", "Grupo H", "2026-06-15", "12:00"),
     ("Uruguay", "Arabia Saudi", "Grupo H", "2026-06-15", "15:00"),
     ("Espana", "Uruguay", "Grupo H", "2026-06-21", "14:00"),
     ("Cabo Verde", "Arabia Saudi", "Grupo H", "2026-06-21", "17:00"),
     ("Espana", "Arabia Saudi", "Grupo H", "2026-06-27", "13:00"),
     ("Uruguay", "Cabo Verde", "Grupo H", "2026-06-27", "16:00"),
+    # Grupo I
     ("Francia", "Irak", "Grupo I", "2026-06-15", "13:00"),
     ("Senegal", "Noruega", "Grupo I", "2026-06-15", "16:00"),
     ("Francia", "Senegal", "Grupo I", "2026-06-22", "15:00"),
     ("Noruega", "Irak", "Grupo I", "2026-06-22", "18:00"),
     ("Francia", "Noruega", "Grupo I", "2026-06-27", "14:00"),
     ("Irak", "Senegal", "Grupo I", "2026-06-27", "17:00"),
+    # Grupo J
     ("Argentina", "Argelia", "Grupo J", "2026-06-16", "15:00"),
     ("Austria", "Chile", "Grupo J", "2026-06-16", "18:00"),
     ("Argentina", "Austria", "Grupo J", "2026-06-22", "14:00"),
     ("Chile", "Argelia", "Grupo J", "2026-06-22", "17:00"),
     ("Argentina", "Chile", "Grupo J", "2026-06-28", "16:00"),
     ("Argelia", "Austria", "Grupo J", "2026-06-28", "19:00"),
+    # Grupo K
     ("Portugal", "Jamaica", "Grupo K", "2026-06-16", "13:00"),
     ("Colombia", "Uzbekistan", "Grupo K", "2026-06-16", "16:00"),
     ("Portugal", "Colombia", "Grupo K", "2026-06-23", "15:00"),
     ("Jamaica", "Uzbekistan", "Grupo K", "2026-06-23", "18:00"),
     ("Portugal", "Uzbekistan", "Grupo K", "2026-06-28", "14:00"),
     ("Colombia", "Jamaica", "Grupo K", "2026-06-28", "17:00"),
+    # Grupo L
     ("Inglaterra", "Ghana", "Grupo L", "2026-06-17", "15:00"),
     ("Croacia", "Panama", "Grupo L", "2026-06-17", "18:00"),
     ("Inglaterra", "Croacia", "Grupo L", "2026-06-23", "14:00"),
@@ -104,10 +116,9 @@ CALENDARIO_GRUPOS = [
 
 FASES_ELIMINATORIAS = ["Octavos", "Cuartos", "Semifinal", "Final"]
 
-# ─── CONEXIÓN ÚNICA GLOBAL (NO SE CIERRA) ──────────────────────────────────────
+# ─── CONEXIÓN ÚNICA GLOBAL ─────────────────────────────────────────────────────
 @st.cache_resource
 def get_db_connection():
-    """Crea UNA SOLA conexión que se reutiliza para siempre"""
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 def hash_password(password):
@@ -126,13 +137,13 @@ def partido_ha_comenzado(fecha_partido, hora_partido):
     except:
         return False
 
-# ─── INICIALIZAR BD (UNA SOLA VEZ) ─────────────────────────────────────────────
+# ─── INICIALIZAR BD (CON LIMPIEZA DE DUPLICADOS) ───────────────────────────────
 @st.cache_resource
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Tabla jugadores
+    # Crear tablas
     cur.execute("""
         CREATE TABLE IF NOT EXISTS jugadores (
             id SERIAL PRIMARY KEY,
@@ -144,7 +155,6 @@ def init_db():
         )
     """)
     
-    # Tabla partidos
     cur.execute("""
         CREATE TABLE IF NOT EXISTS partidos (
             id SERIAL PRIMARY KEY,
@@ -154,11 +164,11 @@ def init_db():
             goles_visitante INTEGER DEFAULT NULL,
             fase VARCHAR(30) NOT NULL,
             fecha DATE NOT NULL,
-            hora VARCHAR(10) DEFAULT '15:00'
+            hora VARCHAR(10) DEFAULT '15:00',
+            UNIQUE(equipo_local, equipo_visitante, fecha, hora)
         )
     """)
     
-    # Tabla predicciones
     cur.execute("""
         CREATE TABLE IF NOT EXISTS predicciones (
             id SERIAL PRIMARY KEY,
@@ -179,27 +189,29 @@ def init_db():
         WHERE NOT EXISTS (SELECT 1 FROM jugadores WHERE email = 'admin@quiniela.com')
     """, (admin_pass,))
     
-    # Precargar partidos
-    cur.execute("SELECT COUNT(*) FROM partidos")
-    if cur.fetchone()[0] == 0:
-        for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
-            cur.execute("""
-                INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (local, visitante, fase, fecha_str, hora))
+    # Limpiar partidos existentes para evitar duplicados
+    cur.execute("DELETE FROM partidos")
+    
+    # Insertar partidos únicos
+    for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
+        cur.execute("""
+            INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (local, visitante, fase, fecha_str, hora))
     
     conn.commit()
     return True
 
-# ─── FUNCIONES DE CONSULTA (SIN CERRAR CONEXIÓN) ───────────────────────────────
-@st.cache_data(ttl=300)
+# ─── FUNCIONES DE CONSULTA ─────────────────────────────────────────────────────
+@st.cache_data(ttl=600)
 def get_partidos():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, hora FROM partidos ORDER BY fecha, hora")
-    return cur.fetchall()
+    rows = cur.fetchall()
+    return rows
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def get_tabla_posiciones():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -212,9 +224,10 @@ def get_tabla_posiciones():
         GROUP BY j.id, j.nombre
         ORDER BY total DESC, exactos DESC
     """)
-    return cur.fetchall()
+    rows = cur.fetchall()
+    return rows
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def get_mis_predicciones(jugador_id):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -226,7 +239,8 @@ def get_mis_predicciones(jugador_id):
         WHERE pr.jugador_id = %s
         ORDER BY p.fecha, p.hora
     """, (jugador_id,))
-    return cur.fetchall()
+    rows = cur.fetchall()
+    return rows
 
 def get_prediccion(jugador_id, partido_id):
     conn = get_db_connection()
@@ -343,10 +357,11 @@ def set_resultado(partido_id, goles_local, goles_visitante):
 def add_partido(local, visitante, fase, fecha, hora):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora) VALUES (%s, %s, %s, %s, %s)",
-        (local, visitante, fase, fecha, hora)
-    )
+    cur.execute("""
+        INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (equipo_local, equipo_visitante, fecha, hora) DO NOTHING
+    """, (local, visitante, fase, fecha, hora))
     conn.commit()
     st.cache_data.clear()
 
@@ -424,6 +439,11 @@ with st.sidebar:
         st.divider()
         st.markdown("**🔧 Admin**")
         admin_menu = st.radio("", ["⚽ Resultados", "➕ Partido"], label_visibility="collapsed")
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Mostrar cantidad de partidos (para verificar que no hay duplicados)
+partidos_count = len(get_partidos())
+st.sidebar.caption(f"📊 {partidos_count} partidos cargados")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 1. TABLA DE POSICIONES
@@ -576,18 +596,29 @@ elif menu == "📅 Calendario":
     partidos = get_partidos()
     ahora = ahora_venezuela()
     
+    # Agrupar por fase
+    fases = {}
     for p in partidos:
-        pid, local, visitante, gl, gv, fase, fecha, hora = p
-        
-        if gl is not None:
-            resultado = f"{gl}-{gv}"
-            icon = "✅"
-        else:
-            resultado = "vs"
-            fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time()).replace(tzinfo=VENEZUELA_TZ)
-            icon = "🔴" if fecha_hora <= ahora else "⏳"
-        
-        st.write(f"{icon} **{fecha.day}/{fecha.month} {hora}** — {local} {resultado} {visitante}")
+        fase = p[5]
+        if fase not in fases:
+            fases[fase] = []
+        fases[fase].append(p)
+    
+    for fase, partidos_fase in fases.items():
+        st.subheader(fase)
+        for p in partidos_fase:
+            pid, local, visitante, gl, gv, fase, fecha, hora = p
+            
+            if gl is not None:
+                resultado = f"{gl}-{gv}"
+                icon = "✅"
+            else:
+                resultado = "vs"
+                fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time()).replace(tzinfo=VENEZUELA_TZ)
+                icon = "🔴" if fecha_hora <= ahora else "⏳"
+            
+            st.write(f"{icon} **{fecha.day}/{fecha.month} {hora}** — {local} {resultado} {visitante}")
+        st.divider()
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ADMIN: RESULTADOS
