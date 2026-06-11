@@ -148,8 +148,16 @@ CALENDARIO_GRUPOS = [
 FASES_ELIMINATORIAS = ["16avos de Final", "Octavos de Final", "Cuartos de Final", "Semifinal", "Tercer lugar", "Final"]
 
 # ─── Conexión a Neon ───────────────────────────────────────────────────────────
+@st.cache_resource
+def get_db_pool():
+    import psycopg2.pool
+    return psycopg2.pool.SimpleConnectionPool(1, 5, os.environ["DATABASE_URL"])
+
 def get_connection():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    return get_db_pool().getconn()
+
+def release_connection(conn):
+    get_db_pool().putconn(conn)
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -301,24 +309,30 @@ def login_jugador(email, password):
     conn.close()
     return row  # (id, nombre, es_admin) o None
 
+@st.cache_data(ttl=60)
 def get_todos_jugadores():
     conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, nombre, email, registrado_en FROM jugadores ORDER BY registrado_en DESC")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, nombre, email, registrado_en FROM jugadores ORDER BY registrado_en DESC")
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    finally:
+        release_connection(conn)
 
 # ─── Funciones de partidos ─────────────────────────────────────────────────────
+@st.cache_data(ttl=60)
 def get_partidos():
     conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, sede FROM partidos ORDER BY fecha, id")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, sede FROM partidos ORDER BY fecha, id")
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    finally:
+        release_connection(conn)
 
 def add_partido(local, visitante, fase, fecha, sede=""):
     conn = get_connection()
@@ -329,7 +343,8 @@ def add_partido(local, visitante, fase, fecha, sede=""):
     )
     conn.commit()
     cur.close()
-    conn.close()
+    st.cache_data.clear()
+    release_connection(conn)
 
 def set_resultado(partido_id, goles_local, goles_visitante):
     conn = get_connection()
@@ -358,49 +373,59 @@ def save_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
     cur.close()
     conn.close()
 
+@st.cache_data(ttl=30)
 def get_predicciones_jugador(jugador_id):
     conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT p.id, p.equipo_local, p.equipo_visitante, p.goles_local, p.goles_visitante,
-               p.fase, p.fecha, pr.pred_local, pr.pred_visitante, pr.puntos
-        FROM predicciones pr
-        JOIN partidos p ON pr.partido_id = p.id
-        WHERE pr.jugador_id = %s
-        ORDER BY p.fecha
-    """, (jugador_id,))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.id, p.equipo_local, p.equipo_visitante, p.goles_local, p.goles_visitante,
+                   p.fase, p.fecha, pr.pred_local, pr.pred_visitante, pr.puntos
+            FROM predicciones pr
+            JOIN partidos p ON pr.partido_id = p.id
+            WHERE pr.jugador_id = %s
+            ORDER BY p.fecha
+        """, (jugador_id,))
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    finally:
+        release_connection(conn)
 
+@st.cache_data(ttl=30)
 def get_prediccion_existente(jugador_id, partido_id):
     conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT pred_local, pred_visitante FROM predicciones WHERE jugador_id=%s AND partido_id=%s",
-                (jugador_id, partido_id))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    return row
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT pred_local, pred_visitante FROM predicciones WHERE jugador_id=%s AND partido_id=%s",
+                    (jugador_id, partido_id))
+        row = cur.fetchone()
+        cur.close()
+        return row
+    finally:
+        release_connection(conn)
 
+@st.cache_data(ttl=30)
 def get_tabla_posiciones():
     conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT j.nombre, 
-               COALESCE(SUM(pr.puntos), 0) as total,
-               COUNT(CASE WHEN pr.puntos = 3 THEN 1 END) as exactos,
-               COUNT(CASE WHEN pr.puntos = 1 THEN 1 END) as ganadores,
-               COUNT(pr.id) as total_preds
-        FROM jugadores j
-        LEFT JOIN predicciones pr ON j.id = pr.jugador_id
-        GROUP BY j.id, j.nombre
-        ORDER BY total DESC, exactos DESC
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT j.nombre, 
+                   COALESCE(SUM(pr.puntos), 0) as total,
+                   COUNT(CASE WHEN pr.puntos = 3 THEN 1 END) as exactos,
+                   COUNT(CASE WHEN pr.puntos = 1 THEN 1 END) as ganadores,
+                   COUNT(pr.id) as total_preds
+            FROM jugadores j
+            LEFT JOIN predicciones pr ON j.id = pr.jugador_id
+            GROUP BY j.id, j.nombre
+            ORDER BY total DESC, exactos DESC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    finally:
+        release_connection(conn)
     return rows
 
 def calcular_puntos(pred_l, pred_v, real_l, real_v):
