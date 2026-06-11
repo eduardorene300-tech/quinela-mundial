@@ -26,74 +26,101 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─── DATOS ÚNICOS ──────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════════
+# DATOS COMPLETOS DEL MUNDIAL 2026
+# ════════════════════════════════════════════════════════════════════════════════
+
+# ─── FASE DE GRUPOS (72 partidos) ──────────────────────────────────────────────
 CALENDARIO_GRUPOS = [
+    # GRUPO A (6 partidos)
     ("Mexico", "Sudafrica", "Grupo A", "2026-06-11", "15:00"),
     ("Corea del Sur", "Republica Checa", "Grupo A", "2026-06-11", "18:00"),
-    ("Sudafrica", "Republica Checa", "Grupo A", "2026-06-18", "14:00"),
     ("Mexico", "Corea del Sur", "Grupo A", "2026-06-18", "20:00"),
+    ("Sudafrica", "Republica Checa", "Grupo A", "2026-06-18", "14:00"),
     ("Mexico", "Republica Checa", "Grupo A", "2026-06-24", "16:00"),
     ("Sudafrica", "Corea del Sur", "Grupo A", "2026-06-24", "19:00"),
+    
+    # GRUPO B (6 partidos)
     ("Canada", "Bosnia y Herzegovina", "Grupo B", "2026-06-12", "13:00"),
     ("Qatar", "Suiza", "Grupo B", "2026-06-12", "16:00"),
-    ("Bosnia y Herzegovina", "Suiza", "Grupo B", "2026-06-18", "18:00"),
     ("Canada", "Qatar", "Grupo B", "2026-06-18", "20:00"),
+    ("Bosnia y Herzegovina", "Suiza", "Grupo B", "2026-06-18", "18:00"),
     ("Canada", "Suiza", "Grupo B", "2026-06-24", "14:00"),
     ("Bosnia y Herzegovina", "Qatar", "Grupo B", "2026-06-24", "17:00"),
+    
+    # GRUPO C (6 partidos)
     ("Brasil", "Haiti", "Grupo C", "2026-06-12", "12:00"),
     ("Marruecos", "Escocia", "Grupo C", "2026-06-12", "15:00"),
     ("Brasil", "Marruecos", "Grupo C", "2026-06-19", "14:00"),
     ("Escocia", "Haiti", "Grupo C", "2026-06-19", "17:00"),
     ("Brasil", "Escocia", "Grupo C", "2026-06-25", "13:00"),
     ("Haiti", "Marruecos", "Grupo C", "2026-06-25", "16:00"),
+    
+    # GRUPO D (6 partidos)
     ("Estados Unidos", "Paraguay", "Grupo D", "2026-06-13", "15:00"),
     ("Australia", "Turquia", "Grupo D", "2026-06-13", "18:00"),
     ("Estados Unidos", "Australia", "Grupo D", "2026-06-19", "14:00"),
     ("Paraguay", "Turquia", "Grupo D", "2026-06-19", "20:00"),
     ("Estados Unidos", "Turquia", "Grupo D", "2026-06-25", "16:00"),
     ("Australia", "Paraguay", "Grupo D", "2026-06-25", "19:00"),
+    
+    # GRUPO E (6 partidos)
     ("Alemania", "Costa de Marfil", "Grupo E", "2026-06-13", "13:00"),
     ("Ecuador", "Curazao", "Grupo E", "2026-06-13", "16:00"),
     ("Alemania", "Ecuador", "Grupo E", "2026-06-20", "15:00"),
     ("Costa de Marfil", "Curazao", "Grupo E", "2026-06-20", "18:00"),
     ("Alemania", "Curazao", "Grupo E", "2026-06-26", "14:00"),
     ("Ecuador", "Costa de Marfil", "Grupo E", "2026-06-26", "17:00"),
+    
+    # GRUPO F (6 partidos)
     ("Japon", "Peru", "Grupo F", "2026-06-14", "12:00"),
     ("Arabia Saudi", "Rumania", "Grupo F", "2026-06-14", "15:00"),
     ("Japon", "Arabia Saudi", "Grupo F", "2026-06-20", "14:00"),
     ("Peru", "Rumania", "Grupo F", "2026-06-20", "17:00"),
     ("Japon", "Rumania", "Grupo F", "2026-06-26", "13:00"),
     ("Peru", "Arabia Saudi", "Grupo F", "2026-06-26", "16:00"),
+    
+    # GRUPO G (6 partidos)
     ("Belgica", "Nueva Zelanda", "Grupo G", "2026-06-14", "13:00"),
     ("Iran", "Egipto", "Grupo G", "2026-06-14", "16:00"),
     ("Belgica", "Iran", "Grupo G", "2026-06-21", "15:00"),
     ("Egipto", "Nueva Zelanda", "Grupo G", "2026-06-21", "18:00"),
     ("Belgica", "Egipto", "Grupo G", "2026-06-27", "14:00"),
     ("Iran", "Nueva Zelanda", "Grupo G", "2026-06-27", "17:00"),
+    
+    # GRUPO H (6 partidos)
     ("Espana", "Cabo Verde", "Grupo H", "2026-06-15", "12:00"),
     ("Uruguay", "Arabia Saudi", "Grupo H", "2026-06-15", "15:00"),
     ("Espana", "Uruguay", "Grupo H", "2026-06-21", "14:00"),
     ("Cabo Verde", "Arabia Saudi", "Grupo H", "2026-06-21", "17:00"),
     ("Espana", "Arabia Saudi", "Grupo H", "2026-06-27", "13:00"),
     ("Uruguay", "Cabo Verde", "Grupo H", "2026-06-27", "16:00"),
+    
+    # GRUPO I (6 partidos)
     ("Francia", "Irak", "Grupo I", "2026-06-15", "13:00"),
     ("Senegal", "Noruega", "Grupo I", "2026-06-15", "16:00"),
     ("Francia", "Senegal", "Grupo I", "2026-06-22", "15:00"),
     ("Noruega", "Irak", "Grupo I", "2026-06-22", "18:00"),
     ("Francia", "Noruega", "Grupo I", "2026-06-27", "14:00"),
     ("Irak", "Senegal", "Grupo I", "2026-06-27", "17:00"),
+    
+    # GRUPO J (6 partidos)
     ("Argentina", "Argelia", "Grupo J", "2026-06-16", "15:00"),
     ("Austria", "Chile", "Grupo J", "2026-06-16", "18:00"),
     ("Argentina", "Austria", "Grupo J", "2026-06-22", "14:00"),
     ("Chile", "Argelia", "Grupo J", "2026-06-22", "17:00"),
     ("Argentina", "Chile", "Grupo J", "2026-06-28", "16:00"),
     ("Argelia", "Austria", "Grupo J", "2026-06-28", "19:00"),
+    
+    # GRUPO K (6 partidos)
     ("Portugal", "Jamaica", "Grupo K", "2026-06-16", "13:00"),
     ("Colombia", "Uzbekistan", "Grupo K", "2026-06-16", "16:00"),
     ("Portugal", "Colombia", "Grupo K", "2026-06-23", "15:00"),
     ("Jamaica", "Uzbekistan", "Grupo K", "2026-06-23", "18:00"),
     ("Portugal", "Uzbekistan", "Grupo K", "2026-06-28", "14:00"),
     ("Colombia", "Jamaica", "Grupo K", "2026-06-28", "17:00"),
+    
+    # GRUPO L (6 partidos)
     ("Inglaterra", "Ghana", "Grupo L", "2026-06-17", "15:00"),
     ("Croacia", "Panama", "Grupo L", "2026-06-17", "18:00"),
     ("Inglaterra", "Croacia", "Grupo L", "2026-06-23", "14:00"),
@@ -102,10 +129,79 @@ CALENDARIO_GRUPOS = [
     ("Ghana", "Croacia", "Grupo L", "2026-06-28", "16:00"),
 ]
 
-FASES_ELIMINATORIAS = ["Octavos", "Cuartos", "Semifinal", "Final"]
+# ─── FASE ELIMINATORIA COMPLETA ────────────────────────────────────────────────
+# 16avos de Final (16 partidos) - 32 equipos
+CALENDARIO_16AVOS = [
+    ("1A", "2B", "16avos de Final", "2026-06-29", "12:00"),
+    ("1C", "2D", "16avos de Final", "2026-06-29", "15:00"),
+    ("1E", "2F", "16avos de Final", "2026-06-30", "12:00"),
+    ("1G", "2H", "16avos de Final", "2026-06-30", "15:00"),
+    ("1I", "2J", "16avos de Final", "2026-07-01", "12:00"),
+    ("1K", "2L", "16avos de Final", "2026-07-01", "15:00"),
+    ("2A", "1B", "16avos de Final", "2026-07-02", "12:00"),
+    ("2C", "1D", "16avos de Final", "2026-07-02", "15:00"),
+    ("2E", "1F", "16avos de Final", "2026-07-03", "12:00"),
+    ("2G", "1H", "16avos de Final", "2026-07-03", "15:00"),
+    ("2I", "1J", "16avos de Final", "2026-07-04", "12:00"),
+    ("2K", "1L", "16avos de Final", "2026-07-04", "15:00"),
+    ("3A", "3B", "16avos de Final", "2026-07-05", "12:00"),
+    ("3C", "3D", "16avos de Final", "2026-07-05", "15:00"),
+    ("3E", "3F", "16avos de Final", "2026-07-06", "12:00"),
+    ("3G", "3H", "16avos de Final", "2026-07-06", "15:00"),
+]
+
+# Octavos de Final (8 partidos) - 16 equipos
+CALENDARIO_OCTAVOS = [
+    ("Ganador 16avos 1", "Ganador 16avos 2", "Octavos de Final", "2026-07-07", "12:00"),
+    ("Ganador 16avos 3", "Ganador 16avos 4", "Octavos de Final", "2026-07-07", "15:00"),
+    ("Ganador 16avos 5", "Ganador 16avos 6", "Octavos de Final", "2026-07-08", "12:00"),
+    ("Ganador 16avos 7", "Ganador 16avos 8", "Octavos de Final", "2026-07-08", "15:00"),
+    ("Ganador 16avos 9", "Ganador 16avos 10", "Octavos de Final", "2026-07-09", "12:00"),
+    ("Ganador 16avos 11", "Ganador 16avos 12", "Octavos de Final", "2026-07-09", "15:00"),
+    ("Ganador 16avos 13", "Ganador 16avos 14", "Octavos de Final", "2026-07-10", "12:00"),
+    ("Ganador 16avos 15", "Ganador 16avos 16", "Octavos de Final", "2026-07-10", "15:00"),
+]
+
+# Cuartos de Final (4 partidos) - 8 equipos
+CALENDARIO_CUARTOS = [
+    ("Ganador Octavos 1", "Ganador Octavos 2", "Cuartos de Final", "2026-07-11", "12:00"),
+    ("Ganador Octavos 3", "Ganador Octavos 4", "Cuartos de Final", "2026-07-11", "15:00"),
+    ("Ganador Octavos 5", "Ganador Octavos 6", "Cuartos de Final", "2026-07-12", "12:00"),
+    ("Ganador Octavos 7", "Ganador Octavos 8", "Cuartos de Final", "2026-07-12", "15:00"),
+]
+
+# Semifinales (2 partidos) - 4 equipos
+CALENDARIO_SEMIFINALES = [
+    ("Ganador Cuartos 1", "Ganador Cuartos 2", "Semifinal", "2026-07-14", "15:00"),
+    ("Ganador Cuartos 3", "Ganador Cuartos 4", "Semifinal", "2026-07-15", "15:00"),
+]
+
+# Tercer Lugar (1 partido)
+CALENDARIO_TERCER_LUGAR = [
+    ("Perdedor Semifinal 1", "Perdedor Semifinal 2", "Tercer Lugar", "2026-07-18", "15:00"),
+]
+
+# Final (1 partido)
+CALENDARIO_FINAL = [
+    ("Ganador Semifinal 1", "Ganador Semifinal 2", "Final", "2026-07-19", "15:00"),
+]
+
+# Unir todas las fases eliminatorias
+CALENDARIO_ELIMINACION = (
+    CALENDARIO_16AVOS + 
+    CALENDARIO_OCTAVOS + 
+    CALENDARIO_CUARTOS + 
+    CALENDARIO_SEMIFINALES + 
+    CALENDARIO_TERCER_LUGAR + 
+    CALENDARIO_FINAL
+)
+
+# Total de partidos eliminatorios: 16 + 8 + 4 + 2 + 1 + 1 = 32 partidos
+# Total general: 72 (grupos) + 32 (eliminatorias) = 104 partidos
+
+FASES_ELIMINATORIAS = ["16avos de Final", "Octavos de Final", "Cuartos de Final", "Semifinal", "Tercer Lugar", "Final"]
 
 # ─── VARIABLE GLOBAL DE CONEXIÓN ───────────────────────────────────────────────
-# NO cerramos esta conexión NUNCA
 _conn = None
 
 def get_db_connection():
@@ -180,23 +276,27 @@ def init_db():
         WHERE NOT EXISTS (SELECT 1 FROM jugadores WHERE email = 'admin@quiniela.com')
     """, (admin_pass,))
     
-    # Verificar si ya hay partidos
-    cur.execute("SELECT COUNT(*) FROM partidos")
-    count = cur.fetchone()[0]
+    # Limpiar y cargar TODOS los partidos
+    cur.execute("DELETE FROM partidos")
     
-    if count == 0:
-        for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
-            cur.execute("""
-                INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (local, visitante, fase, fecha_str, hora))
+    # Cargar fase de grupos (72 partidos)
+    for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
+        cur.execute("""
+            INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (local, visitante, fase, fecha_str, hora))
+    
+    # Cargar todas las eliminatorias (32 partidos)
+    for local, visitante, fase, fecha_str, hora in CALENDARIO_ELIMINACION:
+        cur.execute("""
+            INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (local, visitante, fase, fecha_str, hora))
     
     conn.commit()
-    # NO cerramos la conexión
 
-# ─── FUNCIONES DE CONSULTA (CON REINTENTO) ─────────────────────────────────────
+# ─── FUNCIONES DE CONSULTA ─────────────────────────────────────────────────────
 def ejecutar_consulta(sql, params=None):
-    """Ejecuta una consulta y maneja la reconexión automática"""
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -206,7 +306,6 @@ def ejecutar_consulta(sql, params=None):
             cur.execute(sql)
         return cur.fetchall()
     except Exception as e:
-        # Si hay error, intentar reconectar
         global _conn
         _conn = None
         conn = get_db_connection()
@@ -218,7 +317,6 @@ def ejecutar_consulta(sql, params=None):
         return cur.fetchall()
 
 def ejecutar_comando(sql, params=None):
-    """Ejecuta un comando y maneja la reconexión automática"""
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -230,7 +328,6 @@ def ejecutar_comando(sql, params=None):
         st.cache_data.clear()
         return True, None
     except Exception as e:
-        # Si hay error, intentar reconectar
         global _conn
         _conn = None
         try:
@@ -303,7 +400,6 @@ def login(email, password):
 
 def guardar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
     try:
-        # Verificar estado del partido
         partido = ejecutar_consulta("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
         if not partido:
             return False, "Partido no encontrado"
@@ -366,7 +462,6 @@ def set_resultado(partido_id, goles_local, goles_visitante):
     if not ok:
         return
     
-    # Actualizar puntos
     predicciones = ejecutar_consulta("SELECT jugador_id, pred_local, pred_visitante FROM predicciones WHERE partido_id=%s", (partido_id,))
     for jugador_id, pl, pv in predicciones:
         if pl == goles_local and pv == goles_visitante:
@@ -616,29 +711,28 @@ elif menu == "📅 Calendario":
     partidos = get_partidos()
     ahora = ahora_venezuela()
     
-    # Agrupar por fase
-    fases = {}
-    for p in partidos:
-        fase = p[5]
-        if fase not in fases:
-            fases[fase] = []
-        fases[fase].append(p)
+    # Agrupar por fase en orden
+    orden_fases = ["Grupo A", "Grupo B", "Grupo C", "Grupo D", "Grupo E", "Grupo F", 
+                   "Grupo G", "Grupo H", "Grupo I", "Grupo J", "Grupo K", "Grupo L",
+                   "16avos de Final", "Octavos de Final", "Cuartos de Final", "Semifinal", "Tercer Lugar", "Final"]
     
-    for fase, partidos_fase in fases.items():
-        st.subheader(fase)
-        for p in partidos_fase:
-            pid, local, visitante, gl, gv, fase, fecha, hora = p
-            
-            if gl is not None:
-                resultado = f"{gl}-{gv}"
-                icon = "✅"
-            else:
-                resultado = "vs"
-                fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time()).replace(tzinfo=VENEZUELA_TZ)
-                icon = "🔴" if fecha_hora <= ahora else "⏳"
-            
-            st.write(f"{icon} **{fecha.day}/{fecha.month} {hora}** — {local} {resultado} {visitante}")
-        st.divider()
+    for fase in orden_fases:
+        partidos_fase = [p for p in partidos if p[5] == fase]
+        if partidos_fase:
+            st.subheader(fase)
+            for p in partidos_fase:
+                pid, local, visitante, gl, gv, fase, fecha, hora = p
+                
+                if gl is not None:
+                    resultado = f"{gl}-{gv}"
+                    icon = "✅"
+                else:
+                    resultado = "vs"
+                    fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time()).replace(tzinfo=VENEZUELA_TZ)
+                    icon = "🔴" if fecha_hora <= ahora else "⏳"
+                
+                st.write(f"{icon} **{fecha.day}/{fecha.month} {hora}** — {local} {resultado} {visitante}")
+            st.divider()
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ADMIN: RESULTADOS
