@@ -120,74 +120,86 @@ class DBConnection:
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# ─── FUNCIÓN PARA CREAR TABLAS (FORZADA, SIN CACHÉ) ────────────────────────────
-def init_db():
-    """Crea todas las tablas necesarias - se ejecuta siempre al inicio"""
+# ─── FUNCIÓN PARA VERIFICAR SI EL PARTIDO COMENZÓ (CORREGIDA) ───────────────────
+def partido_ha_comenzado(fecha_partido, hora_partido):
+    """Verifica si el partido ya comenzó (comparación correcta con fecha actual)"""
     try:
-        with DBConnection() as conn:
-            cur = conn.cursor()
-            
-            # Tabla jugadores
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS jugadores (
-                    id SERIAL PRIMARY KEY,
-                    nombre VARCHAR(50) UNIQUE NOT NULL,
-                    email VARCHAR(100) UNIQUE NOT NULL,
-                    password_hash VARCHAR(64) NOT NULL,
-                    es_admin BOOLEAN DEFAULT FALSE,
-                    registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Tabla partidos
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS partidos (
-                    id SERIAL PRIMARY KEY,
-                    equipo_local VARCHAR(60) NOT NULL,
-                    equipo_visitante VARCHAR(60) NOT NULL,
-                    goles_local INTEGER DEFAULT NULL,
-                    goles_visitante INTEGER DEFAULT NULL,
-                    fase VARCHAR(30) NOT NULL,
-                    fecha DATE NOT NULL,
-                    hora VARCHAR(10) DEFAULT '15:00'
-                )
-            """)
-            
-            # Tabla predicciones
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS predicciones (
-                    id SERIAL PRIMARY KEY,
-                    jugador_id INTEGER REFERENCES jugadores(id),
-                    partido_id INTEGER REFERENCES partidos(id),
-                    pred_local INTEGER NOT NULL,
-                    pred_visitante INTEGER NOT NULL,
-                    puntos INTEGER DEFAULT 0,
-                    UNIQUE(jugador_id, partido_id)
-                )
-            """)
-            
-            # Crear admin por defecto si no existe
-            admin_pass = hash_password("admin123")
-            cur.execute("""
-                INSERT INTO jugadores (nombre, email, password_hash, es_admin)
-                SELECT 'Admin', 'admin@quiniela.com', %s, TRUE
-                WHERE NOT EXISTS (SELECT 1 FROM jugadores WHERE email = 'admin@quiniela.com')
-            """, (admin_pass,))
-            
-            # Precargar partidos solo si no hay ninguno
-            cur.execute("SELECT COUNT(*) FROM partidos")
-            if cur.fetchone()[0] == 0:
-                for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
-                    cur.execute("""
-                        INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """, (local, visitante, fase, fecha_str, hora))
-            
-            conn.commit()
-            return True
+        ahora = datetime.now()
+        
+        # Convertir a datetime
+        if isinstance(fecha_partido, str):
+            fecha_hora_partido = datetime.strptime(f"{fecha_partido} {hora_partido}", "%Y-%m-%d %H:%M")
+        else:
+            fecha_hora_partido = datetime.combine(fecha_partido, datetime.strptime(hora_partido, "%H:%M").time())
+        
+        # Si la fecha del partido es POSTERIOR a ahora → NO ha comenzado
+        if fecha_hora_partido > ahora:
+            return False
+        
+        # Si la fecha ya pasó o es hoy a esta hora → YA COMENZÓ
+        return True
     except Exception as e:
-        st.error(f"Error creando tablas: {e}")
-        return False
+        return False  # Por defecto, no bloquear
+
+# ─── CREAR TABLAS ──────────────────────────────────────────────────────────────
+def init_db():
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS jugadores (
+                id SERIAL PRIMARY KEY,
+                nombre VARCHAR(50) UNIQUE NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                password_hash VARCHAR(64) NOT NULL,
+                es_admin BOOLEAN DEFAULT FALSE,
+                registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS partidos (
+                id SERIAL PRIMARY KEY,
+                equipo_local VARCHAR(60) NOT NULL,
+                equipo_visitante VARCHAR(60) NOT NULL,
+                goles_local INTEGER DEFAULT NULL,
+                goles_visitante INTEGER DEFAULT NULL,
+                fase VARCHAR(30) NOT NULL,
+                fecha DATE NOT NULL,
+                hora VARCHAR(10) DEFAULT '15:00'
+            )
+        """)
+        
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS predicciones (
+                id SERIAL PRIMARY KEY,
+                jugador_id INTEGER REFERENCES jugadores(id),
+                partido_id INTEGER REFERENCES partidos(id),
+                pred_local INTEGER NOT NULL,
+                pred_visitante INTEGER NOT NULL,
+                puntos INTEGER DEFAULT 0,
+                UNIQUE(jugador_id, partido_id)
+            )
+        """)
+        
+        # Admin por defecto
+        admin_pass = hash_password("admin123")
+        cur.execute("""
+            INSERT INTO jugadores (nombre, email, password_hash, es_admin)
+            SELECT 'Admin', 'admin@quiniela.com', %s, TRUE
+            WHERE NOT EXISTS (SELECT 1 FROM jugadores WHERE email = 'admin@quiniela.com')
+        """, (admin_pass,))
+        
+        # Precargar partidos si no hay
+        cur.execute("SELECT COUNT(*) FROM partidos")
+        if cur.fetchone()[0] == 0:
+            for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
+                cur.execute("""
+                    INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (local, visitante, fase, fecha_str, hora))
+        
+        conn.commit()
 
 # ─── FUNCIONES DE CONSULTA ─────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
@@ -276,9 +288,8 @@ def guardar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
             if goles is not None:
                 return False, "Partido ya finalizado"
             
-            ahora = datetime.now()
-            fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-            if fecha_hora <= ahora:
+            # Verificar si el partido ya comenzó (solo bloquear si es hoy o pasado)
+            if partido_ha_comenzado(fecha, hora):
                 return False, "El partido ya comenzó"
             
             cur.execute("""
@@ -305,9 +316,7 @@ def borrar_prediccion(jugador_id, partido_id):
             if goles is not None:
                 return False, "No se puede borrar: el partido ya finalizó"
             
-            ahora = datetime.now()
-            fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-            if fecha_hora <= ahora:
+            if partido_ha_comenzado(fecha, hora):
                 return False, "No se puede borrar: el partido ya comenzó"
             
             cur.execute("DELETE FROM predicciones WHERE jugador_id=%s AND partido_id=%s", (jugador_id, partido_id))
@@ -359,12 +368,12 @@ def add_partido(local, visitante, fase, fecha, hora):
         conn.commit()
         st.cache_data.clear()
 
-# ─── INICIALIZAR BD (EJECUCIÓN OBLIGATORIA) ─────────────────────────────────────
-# Esto se ejecuta SIEMPRE al iniciar la app
-with st.spinner("Inicializando base de datos..."):
-    if not init_db():
-        st.error("No se pudo inicializar la base de datos")
-        st.stop()
+# ─── INICIALIZAR BD ────────────────────────────────────────────────────────────
+try:
+    init_db()
+except Exception as e:
+    st.error(f"Error: {e}")
+    st.stop()
 
 # ─── ESTADO DE SESIÓN ──────────────────────────────────────────────────────────
 if "user_id" not in st.session_state:
@@ -375,6 +384,7 @@ if "user_id" not in st.session_state:
 # ─── HEADER ────────────────────────────────────────────────────────────────────
 st.title("⚽ Quiniela Mundial 2026")
 st.caption("11 Jun - 19 Jul 2026 | USA · México · Canadá")
+st.info("📅 Los partidos son en 2026. Puedes hacer todas tus predicciones desde ahora.")
 
 # ─── LOGIN / REGISTRO ──────────────────────────────────────────────────────────
 if not st.session_state.user_id:
@@ -454,7 +464,7 @@ if menu == "🏆 Tabla":
             st.markdown(f"{icon} **{nombre}** — **{pts} pts** (🟢{exactos} / 🟡{ganadores})")
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 2. PREDICCIONES
+# 2. PREDICCIONES (TODOS LOS PARTIDOS VISIBLES)
 elif menu == "🎯 Predecir":
     st.header(f"🎯 Predecir - {st.session_state.user_name}")
     
@@ -473,13 +483,8 @@ elif menu == "🎯 Predecir":
     partidos = get_partidos()
     ahora = datetime.now()
     
-    disponibles = []
-    for p in partidos:
-        pid, local, visitante, gl, gv, fase, fecha, hora = p
-        if gl is None:
-            fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-            if fecha_hora > ahora:
-                disponibles.append(p)
+    # Mostrar TODOS los partidos que NO tienen resultado
+    disponibles = [p for p in partidos if p[3] is None]
     
     if not disponibles:
         st.info("No hay partidos disponibles para predecir")
@@ -491,34 +496,44 @@ elif menu == "🎯 Predecir":
             val_l = pred[0] if pred else 0
             val_v = pred[1] if pred else 0
             
+            # Calcular tiempo restante (solo si es en el futuro)
             fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-            resto = fecha_hora - ahora
-            horas = int(resto.total_seconds() // 3600)
-            mins = int((resto.total_seconds() % 3600) // 60)
+            if fecha_hora > ahora:
+                resto = fecha_hora - ahora
+                horas = int(resto.total_seconds() // 3600)
+                mins = int((resto.total_seconds() % 3600) // 60)
+                tiempo_text = f"⏰ {horas}h {mins}m"
+                estado = "🟢 Disponible"
+            else:
+                tiempo_text = "🔴 Partido en curso"
+                estado = "🔴 Cerrado"
             
             if tiene_pred:
-                st.markdown(f"📝 **{local} vs {visitante}** - Actual: {val_l}-{val_v}")
+                st.markdown(f"📝 **{local} vs {visitante}** - Actual: {val_l}-{val_v} | {estado}")
             else:
-                st.markdown(f"⚪ **{local} vs {visitante}** - Sin predicción")
+                st.markdown(f"⚪ **{local} vs {visitante}** - Sin predicción | {estado}")
             
             col1, col2, col3, col4, col5 = st.columns([2, 1, 2, 1, 1])
             
             with col1:
-                g_l = st.number_input(f"{local}", 0, 10, val_l, key=f"l_{pid}", label_visibility="collapsed")
+                g_l = st.number_input(f"{local}", 0, 10, val_l, key=f"l_{pid}", label_visibility="collapsed", disabled=fecha_hora <= ahora)
             with col2:
                 st.write("vs")
             with col3:
-                g_v = st.number_input(f"{visitante}", 0, 10, val_v, key=f"v_{pid}", label_visibility="collapsed")
+                g_v = st.number_input(f"{visitante}", 0, 10, val_v, key=f"v_{pid}", label_visibility="collapsed", disabled=fecha_hora <= ahora)
             with col4:
-                if st.button("💾", key=f"s_{pid}", use_container_width=True):
-                    ok, msg = guardar_prediccion(st.session_state.user_id, pid, g_l, g_v)
-                    if ok:
-                        st.success(msg)
-                        st.rerun()
-                    else:
-                        st.error(msg)
+                if fecha_hora > ahora:
+                    if st.button("💾", key=f"s_{pid}", use_container_width=True):
+                        ok, msg = guardar_prediccion(st.session_state.user_id, pid, g_l, g_v)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                else:
+                    st.button("💾", disabled=True, key=f"s_{pid}_disabled", use_container_width=True)
             with col5:
-                if tiene_pred:
+                if tiene_pred and fecha_hora > ahora:
                     if st.button("🗑️", key=f"d_{pid}", use_container_width=True):
                         ok, msg = borrar_prediccion(st.session_state.user_id, pid)
                         if ok:
@@ -527,7 +542,7 @@ elif menu == "🎯 Predecir":
                         else:
                             st.error(msg)
             
-            st.caption(f"📅 {fecha.day}/{fecha.month} {hora} | ⏰ {horas}h {mins}m")
+            st.caption(f"📅 {fecha.day}/{fecha.month} {hora} | {tiempo_text} | {fase}")
             st.divider()
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -571,7 +586,7 @@ elif menu == "📊 Mis resultados":
                             else:
                                 st.error(msg)
                 else:
-                    st.write(f"🔒 {local} {pl}-{pv} vs {visitante} ({fecha.day}/{fecha.month} {hora})")
+                    st.write(f"🔒 {local} {pl}-{pv} vs {visitante} ({fecha.day}/{fecha.month} {hora}) - Partido comenzado")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 4. CALENDARIO
@@ -590,9 +605,12 @@ elif menu == "📅 Calendario":
         else:
             resultado = "vs"
             fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-            icon = "🔴" if fecha_hora <= ahora else "⏳"
+            if fecha_hora <= ahora:
+                icon = "🔴"
+            else:
+                icon = "⏳"
         
-        st.write(f"{icon} **{fecha.day}/{fecha.month} {hora}** — {local} {resultado} {visitante}")
+        st.write(f"{icon} **{fecha.day}/{fecha.month} {hora}** — {local} {resultado} {visitante} — {fase}")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ADMIN: RESULTADOS
