@@ -1,5 +1,6 @@
 import streamlit as st
 import psycopg2
+import psycopg2.pool
 import os
 import hashlib
 from datetime import datetime, date, timedelta
@@ -16,7 +17,6 @@ st.markdown("""
 <style>
     .stButton button { width: 100%; }
     div[data-testid="column"] { padding: 0 4px; }
-    .partido-row { border-bottom: 1px solid #eee; padding: 8px 0; }
     .delete-btn button { background-color: #ff4444; color: white; }
     .delete-btn button:hover { background-color: #cc0000; }
 </style>
@@ -100,296 +100,267 @@ CALENDARIO_GRUPOS = [
 
 FASES_ELIMINATORIAS = ["Octavos", "Cuartos", "Semifinal", "Final"]
 
-# ─── CONEXIÓN A BASE DE DATOS ──────────────────────────────────────────────────
+# ─── POOL DE CONEXIONES (CORREGIDO) ────────────────────────────────────────────
 @st.cache_resource
-def get_db_connection():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+def get_pool():
+    """Crea un pool de conexiones que se reutiliza"""
+    return psycopg2.pool.SimpleConnectionPool(1, 10, os.environ["DATABASE_URL"])
+
+def get_connection():
+    """Obtiene una conexión del pool"""
+    return get_pool().getconn()
+
+def return_connection(conn):
+    """Devuelve la conexión al pool"""
+    if conn:
+        get_pool().putconn(conn)
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
+# ─── CONTEXT MANAGER PARA CONEXIONES ───────────────────────────────────────────
+class DBConnection:
+    def __enter__(self):
+        self.conn = get_connection()
+        return self.conn
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return_connection(self.conn)
+
 # ─── CREAR TABLAS ──────────────────────────────────────────────────────────────
 @st.cache_resource
 def init_db():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Tabla jugadores
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS jugadores (
-            id SERIAL PRIMARY KEY,
-            nombre VARCHAR(50) UNIQUE NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL,
-            password_hash VARCHAR(64) NOT NULL,
-            es_admin BOOLEAN DEFAULT FALSE,
-            registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    # Tabla partidos
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS partidos (
-            id SERIAL PRIMARY KEY,
-            equipo_local VARCHAR(60) NOT NULL,
-            equipo_visitante VARCHAR(60) NOT NULL,
-            goles_local INTEGER DEFAULT NULL,
-            goles_visitante INTEGER DEFAULT NULL,
-            fase VARCHAR(30) NOT NULL,
-            fecha DATE NOT NULL,
-            hora VARCHAR(10) DEFAULT '15:00'
-        )
-    """)
-    
-    # Tabla predicciones
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS predicciones (
-            id SERIAL PRIMARY KEY,
-            jugador_id INTEGER REFERENCES jugadores(id),
-            partido_id INTEGER REFERENCES partidos(id),
-            pred_local INTEGER NOT NULL,
-            pred_visitante INTEGER NOT NULL,
-            puntos INTEGER DEFAULT 0,
-            UNIQUE(jugador_id, partido_id)
-        )
-    """)
-    
-    # Crear admin por defecto
-    admin_pass = hash_password("admin123")
-    cur.execute("""
-        INSERT INTO jugadores (nombre, email, password_hash, es_admin)
-        VALUES ('Admin', 'admin@quiniela.com', %s, TRUE)
-        ON CONFLICT (email) DO NOTHING
-    """, (admin_pass,))
-    
-    # Precargar partidos
-    cur.execute("SELECT COUNT(*) FROM partidos")
-    if cur.fetchone()[0] == 0:
-        for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
-            cur.execute("""
-                INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (local, visitante, fase, fecha_str, hora))
-    
-    conn.commit()
-    return True
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        
+        # Tabla jugadores
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS jugadores (
+                id SERIAL PRIMARY KEY,
+                nombre VARCHAR(50) UNIQUE NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                password_hash VARCHAR(64) NOT NULL,
+                es_admin BOOLEAN DEFAULT FALSE,
+                registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Tabla partidos
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS partidos (
+                id SERIAL PRIMARY KEY,
+                equipo_local VARCHAR(60) NOT NULL,
+                equipo_visitante VARCHAR(60) NOT NULL,
+                goles_local INTEGER DEFAULT NULL,
+                goles_visitante INTEGER DEFAULT NULL,
+                fase VARCHAR(30) NOT NULL,
+                fecha DATE NOT NULL,
+                hora VARCHAR(10) DEFAULT '15:00'
+            )
+        """)
+        
+        # Tabla predicciones
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS predicciones (
+                id SERIAL PRIMARY KEY,
+                jugador_id INTEGER REFERENCES jugadores(id),
+                partido_id INTEGER REFERENCES partidos(id),
+                pred_local INTEGER NOT NULL,
+                pred_visitante INTEGER NOT NULL,
+                puntos INTEGER DEFAULT 0,
+                UNIQUE(jugador_id, partido_id)
+            )
+        """)
+        
+        # Crear admin por defecto
+        admin_pass = hash_password("admin123")
+        cur.execute("""
+            INSERT INTO jugadores (nombre, email, password_hash, es_admin)
+            VALUES ('Admin', 'admin@quiniela.com', %s, TRUE)
+            ON CONFLICT (email) DO NOTHING
+        """, (admin_pass,))
+        
+        # Precargar partidos
+        cur.execute("SELECT COUNT(*) FROM partidos")
+        if cur.fetchone()[0] == 0:
+            for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
+                cur.execute("""
+                    INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (local, visitante, fase, fecha_str, hora))
+        
+        conn.commit()
+        return True
 
 # ─── FUNCIONES DE CONSULTA ─────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_todos_jugadores():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, nombre FROM jugadores ORDER BY nombre")
-    rows = cur.fetchall()
-    return rows
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, nombre FROM jugadores ORDER BY nombre")
+        return cur.fetchall()
 
 @st.cache_data(ttl=300)
 def get_partidos():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, hora FROM partidos ORDER BY fecha, hora")
-    rows = cur.fetchall()
-    return rows
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, hora FROM partidos ORDER BY fecha, hora")
+        return cur.fetchall()
 
 @st.cache_data(ttl=300)
 def get_tabla_posiciones():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT j.nombre, COALESCE(SUM(pr.puntos), 0) as total,
-               COUNT(CASE WHEN pr.puntos = 3 THEN 1 END) as exactos,
-               COUNT(CASE WHEN pr.puntos = 1 THEN 1 END) as ganadores
-        FROM jugadores j
-        LEFT JOIN predicciones pr ON j.id = pr.jugador_id
-        GROUP BY j.id, j.nombre
-        ORDER BY total DESC, exactos DESC
-    """)
-    rows = cur.fetchall()
-    return rows
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT j.nombre, COALESCE(SUM(pr.puntos), 0) as total,
+                   COUNT(CASE WHEN pr.puntos = 3 THEN 1 END) as exactos,
+                   COUNT(CASE WHEN pr.puntos = 1 THEN 1 END) as ganadores
+            FROM jugadores j
+            LEFT JOIN predicciones pr ON j.id = pr.jugador_id
+            GROUP BY j.id, j.nombre
+            ORDER BY total DESC, exactos DESC
+        """)
+        return cur.fetchall()
 
 @st.cache_data(ttl=300)
 def get_mis_predicciones(jugador_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT p.id, p.equipo_local, p.equipo_visitante, p.goles_local, p.goles_visitante,
-               p.fase, p.fecha, p.hora, pr.pred_local, pr.pred_visitante, pr.puntos
-        FROM predicciones pr
-        JOIN partidos p ON pr.partido_id = p.id
-        WHERE pr.jugador_id = %s
-        ORDER BY p.fecha, p.hora
-    """, (jugador_id,))
-    rows = cur.fetchall()
-    return rows
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.id, p.equipo_local, p.equipo_visitante, p.goles_local, p.goles_visitante,
+                   p.fase, p.fecha, p.hora, pr.pred_local, pr.pred_visitante, pr.puntos
+            FROM predicciones pr
+            JOIN partidos p ON pr.partido_id = p.id
+            WHERE pr.jugador_id = %s
+            ORDER BY p.fecha, p.hora
+        """, (jugador_id,))
+        return cur.fetchall()
 
 def get_prediccion(jugador_id, partido_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT pred_local, pred_visitante FROM predicciones WHERE jugador_id=%s AND partido_id=%s",
-                (jugador_id, partido_id))
-    row = cur.fetchone()
-    return row
-
-# ─── NUEVAS FUNCIONES: BORRAR Y EDITAR PREDICCIONES ────────────────────────────
-def borrar_prediccion(jugador_id, partido_id):
-    """Elimina una predicción existente"""
-    try:
-        conn = get_db_connection()
+    with DBConnection() as conn:
         cur = conn.cursor()
-        
-        # Verificar que el partido no haya comenzado
-        cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
-        fecha, hora, goles = cur.fetchone()
-        
-        if goles is not None:
-            return False, "No se puede borrar: el partido ya finalizó"
-        
-        ahora = datetime.now()
-        fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-        if fecha_hora <= ahora:
-            return False, "No se puede borrar: el partido ya comenzó"
-        
-        cur.execute("DELETE FROM predicciones WHERE jugador_id=%s AND partido_id=%s", (jugador_id, partido_id))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "Predicción borrada correctamente"
-    except Exception as e:
-        return False, str(e)
+        cur.execute("SELECT pred_local, pred_visitante FROM predicciones WHERE jugador_id=%s AND partido_id=%s",
+                    (jugador_id, partido_id))
+        return cur.fetchone()
 
-def editar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
-    """Edita una predicción existente (misma función que guardar pero con mensaje específico)"""
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
-        fecha, hora, goles = cur.fetchone()
-        
-        if goles is not None:
-            return False, "No se puede editar: el partido ya finalizó"
-        
-        ahora = datetime.now()
-        fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-        if fecha_hora <= ahora:
-            return False, "No se puede editar: el partido ya comenzó"
-        
-        cur.execute("""
-            INSERT INTO predicciones (jugador_id, partido_id, pred_local, pred_visitante)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (jugador_id, partido_id)
-            DO UPDATE SET pred_local=EXCLUDED.pred_local, pred_visitante=EXCLUDED.pred_visitante, puntos=0
-        """, (jugador_id, partido_id, pred_local, pred_visitante))
-        
-        conn.commit()
-        st.cache_data.clear()
-        return True, "Predicción actualizada correctamente"
-    except Exception as e:
-        return False, str(e)
-
-def limpiar_todas_predicciones_usuario(jugador_id):
-    """Elimina TODAS las predicciones de un usuario (solo para admin o antes de comenzar)"""
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        # Verificar que ningún partido haya comenzado
-        cur.execute("""
-            SELECT COUNT(*) FROM partidos 
-            WHERE goles_local IS NULL 
-            AND (fecha < CURRENT_DATE OR (fecha = CURRENT_DATE AND hora <= TIME 'now'))
-        """)
-        
-        cur.execute("DELETE FROM predicciones WHERE jugador_id=%s", (jugador_id,))
-        conn.commit()
-        st.cache_data.clear()
-        return True, f"Se eliminaron todas tus predicciones"
-    except Exception as e:
-        return False, str(e)
-
-# ─── FUNCIONES DE AUTENTICACIÓN ────────────────────────────────────────────────
+# ─── FUNCIONES DE ESCRITURA ────────────────────────────────────────────────────
 def registrar_usuario(nombre, email, password):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO jugadores (nombre, email, password_hash) VALUES (%s, %s, %s) RETURNING id",
-            (nombre, email, hash_password(password))
-        )
-        uid = cur.fetchone()[0]
-        conn.commit()
-        st.cache_data.clear()
-        return uid, None
+        with DBConnection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO jugadores (nombre, email, password_hash) VALUES (%s, %s, %s) RETURNING id",
+                (nombre, email, hash_password(password))
+            )
+            uid = cur.fetchone()[0]
+            conn.commit()
+            st.cache_data.clear()
+            return uid, None
     except Exception as e:
         return None, str(e)
 
 def login(email, password):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT id, nombre, es_admin FROM jugadores WHERE email=%s AND password_hash=%s",
-        (email, hash_password(password))
-    )
-    row = cur.fetchone()
-    return row
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, nombre, es_admin FROM jugadores WHERE email=%s AND password_hash=%s",
+            (email, hash_password(password))
+        )
+        return cur.fetchone()
 
 def guardar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
-        fecha, hora, goles = cur.fetchone()
-        
-        if goles is not None:
-            return False, "Partido ya finalizado"
-        
-        ahora = datetime.now()
-        fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-        if fecha_hora <= ahora:
-            return False, "El partido ya comenzó"
-        
-        cur.execute("""
-            INSERT INTO predicciones (jugador_id, partido_id, pred_local, pred_visitante)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (jugador_id, partido_id)
-            DO UPDATE SET pred_local=EXCLUDED.pred_local, pred_visitante=EXCLUDED.pred_visitante, puntos=0
-        """, (jugador_id, partido_id, pred_local, pred_visitante))
-        
-        conn.commit()
-        st.cache_data.clear()
-        return True, "Predicción guardada"
+        with DBConnection() as conn:
+            cur = conn.cursor()
+            
+            cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
+            fecha, hora, goles = cur.fetchone()
+            
+            if goles is not None:
+                return False, "Partido ya finalizado"
+            
+            ahora = datetime.now()
+            fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
+            if fecha_hora <= ahora:
+                return False, "El partido ya comenzó"
+            
+            cur.execute("""
+                INSERT INTO predicciones (jugador_id, partido_id, pred_local, pred_visitante)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (jugador_id, partido_id)
+                DO UPDATE SET pred_local=EXCLUDED.pred_local, pred_visitante=EXCLUDED.pred_visitante, puntos=0
+            """, (jugador_id, partido_id, pred_local, pred_visitante))
+            
+            conn.commit()
+            st.cache_data.clear()
+            return True, "Predicción guardada"
+    except Exception as e:
+        return False, str(e)
+
+def borrar_prediccion(jugador_id, partido_id):
+    try:
+        with DBConnection() as conn:
+            cur = conn.cursor()
+            
+            cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
+            fecha, hora, goles = cur.fetchone()
+            
+            if goles is not None:
+                return False, "No se puede borrar: el partido ya finalizó"
+            
+            ahora = datetime.now()
+            fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
+            if fecha_hora <= ahora:
+                return False, "No se puede borrar: el partido ya comenzó"
+            
+            cur.execute("DELETE FROM predicciones WHERE jugador_id=%s AND partido_id=%s", (jugador_id, partido_id))
+            conn.commit()
+            st.cache_data.clear()
+            return True, "Predicción borrada"
+    except Exception as e:
+        return False, str(e)
+
+def limpiar_todas_predicciones_usuario(jugador_id):
+    try:
+        with DBConnection() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM predicciones WHERE jugador_id=%s", (jugador_id,))
+            conn.commit()
+            st.cache_data.clear()
+            return True, "Todas tus predicciones fueron eliminadas"
     except Exception as e:
         return False, str(e)
 
 def set_resultado(partido_id, goles_local, goles_visitante):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    cur.execute("UPDATE partidos SET goles_local=%s, goles_visitante=%s WHERE id=%s",
-                (goles_local, goles_visitante, partido_id))
-    
-    cur.execute("SELECT jugador_id, pred_local, pred_visitante FROM predicciones WHERE partido_id=%s", (partido_id,))
-    for jugador_id, pl, pv in cur.fetchall():
-        if pl == goles_local and pv == goles_visitante:
-            puntos = 3
-        elif (pl > pv and goles_local > goles_visitante) or (pl < pv and goles_local < goles_visitante) or (pl == pv and goles_local == goles_visitante):
-            puntos = 1
-        else:
-            puntos = 0
-        cur.execute("UPDATE predicciones SET puntos=%s WHERE partido_id=%s AND jugador_id=%s", 
-                   (puntos, partido_id, jugador_id))
-    
-    conn.commit()
-    st.cache_data.clear()
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        
+        cur.execute("UPDATE partidos SET goles_local=%s, goles_visitante=%s WHERE id=%s",
+                    (goles_local, goles_visitante, partido_id))
+        
+        cur.execute("SELECT jugador_id, pred_local, pred_visitante FROM predicciones WHERE partido_id=%s", (partido_id,))
+        for jugador_id, pl, pv in cur.fetchall():
+            if pl == goles_local and pv == goles_visitante:
+                puntos = 3
+            elif (pl > pv and goles_local > goles_visitante) or (pl < pv and goles_local < goles_visitante) or (pl == pv and goles_local == goles_visitante):
+                puntos = 1
+            else:
+                puntos = 0
+            cur.execute("UPDATE predicciones SET puntos=%s WHERE partido_id=%s AND jugador_id=%s", 
+                       (puntos, partido_id, jugador_id))
+        
+        conn.commit()
+        st.cache_data.clear()
 
 def add_partido(local, visitante, fase, fecha, hora):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora) VALUES (%s, %s, %s, %s, %s)",
-        (local, visitante, fase, fecha, hora)
-    )
-    conn.commit()
-    st.cache_data.clear()
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora) VALUES (%s, %s, %s, %s, %s)",
+            (local, visitante, fase, fecha, hora)
+        )
+        conn.commit()
+        st.cache_data.clear()
 
 # ─── INICIALIZAR ───────────────────────────────────────────────────────────────
 try:
@@ -486,14 +457,13 @@ if menu == "🏆 Tabla":
             st.markdown(f"{icon} **{nombre}** — **{pts} pts** (🟢{exactos} / 🟡{ganadores})")
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 2. PREDICCIONES (CON BOTONES EDITAR Y BORRAR)
+# 2. PREDICCIONES
 elif menu == "🎯 Predecir":
     st.header(f"🎯 Predecir - {st.session_state.user_name}")
     
-    # Botón para limpiar todas las predicciones (solo si no hay partidos comenzados)
     col_btn1, col_btn2 = st.columns([3, 1])
     with col_btn2:
-        if st.button("🗑️ Limpiar todas mis predicciones", use_container_width=True):
+        if st.button("🗑️ Limpiar todas", use_container_width=True):
             ok, msg = limpiar_todas_predicciones_usuario(st.session_state.user_id)
             if ok:
                 st.success(msg)
@@ -529,13 +499,12 @@ elif menu == "🎯 Predecir":
             horas = int(resto.total_seconds() // 3600)
             mins = int((resto.total_seconds() % 3600) // 60)
             
-            # Mostrar estado de la predicción
             if tiene_pred:
-                st.markdown(f"📝 **{local} vs {visitante}** - Tu predicción actual: {val_l}-{val_v}")
+                st.markdown(f"📝 **{local} vs {visitante}** - Actual: {val_l}-{val_v}")
             else:
                 st.markdown(f"⚪ **{local} vs {visitante}** - Sin predicción")
             
-            col1, col2, col3, col4, col5, col6 = st.columns([2, 1, 2, 1, 1, 1])
+            col1, col2, col3, col4, col5 = st.columns([2, 1, 2, 1, 1])
             
             with col1:
                 g_l = st.number_input(f"{local}", 0, 10, val_l, key=f"l_{pid}", label_visibility="collapsed")
@@ -544,11 +513,8 @@ elif menu == "🎯 Predecir":
             with col3:
                 g_v = st.number_input(f"{visitante}", 0, 10, val_v, key=f"v_{pid}", label_visibility="collapsed")
             with col4:
-                if st.button("💾 Guardar", key=f"s_{pid}", use_container_width=True):
-                    if tiene_pred:
-                        ok, msg = editar_prediccion(st.session_state.user_id, pid, g_l, g_v)
-                    else:
-                        ok, msg = guardar_prediccion(st.session_state.user_id, pid, g_l, g_v)
+                if st.button("💾", key=f"s_{pid}", use_container_width=True):
+                    ok, msg = guardar_prediccion(st.session_state.user_id, pid, g_l, g_v)
                     if ok:
                         st.success(msg)
                         st.rerun()
@@ -556,21 +522,19 @@ elif menu == "🎯 Predecir":
                         st.error(msg)
             with col5:
                 if tiene_pred:
-                    if st.button("🗑️ Borrar", key=f"d_{pid}", use_container_width=True):
+                    if st.button("🗑️", key=f"d_{pid}", use_container_width=True):
                         ok, msg = borrar_prediccion(st.session_state.user_id, pid)
                         if ok:
                             st.success(msg)
                             st.rerun()
                         else:
                             st.error(msg)
-            with col6:
-                st.caption(f"{fecha.day}/{fecha.month} {hora}")
             
-            st.caption(f"⏰ {horas}h {mins}m restantes")
+            st.caption(f"📅 {fecha.day}/{fecha.month} {hora} | ⏰ {horas}h {mins}m")
             st.divider()
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 3. MIS RESULTADOS (CON OPCIÓN DE BORRAR POR PARTIDO)
+# 3. MIS RESULTADOS
 elif menu == "📊 Mis resultados":
     st.header(f"📊 Mis resultados - {st.session_state.user_name}")
     
@@ -587,7 +551,6 @@ elif menu == "📊 Mis resultados":
             pid, local, visitante, gl, gv, fase, fecha, hora, pl, pv, pts = p
             
             if gl is not None:
-                # Partido finalizado
                 if pts == 3:
                     icon = "🟢"
                 elif pts == 1:
@@ -596,15 +559,13 @@ elif menu == "📊 Mis resultados":
                     icon = "⚫"
                 st.write(f"{icon} {local} {pl}-{pv} vs {visitante} → Real: {gl}-{gv} ({pts} pts)")
             else:
-                # Partido pendiente - mostrar opción de borrar
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.write(f"⏳ {local} {pl}-{pv} vs {visitante} ({fecha.day}/{fecha.month} {hora})")
-                with col2:
-                    # Verificar si aún se puede borrar (partido no comenzó)
-                    fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-                    ahora = datetime.now()
-                    if fecha_hora > ahora:
+                fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
+                ahora = datetime.now()
+                if fecha_hora > ahora:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"⏳ {local} {pl}-{pv} vs {visitante} ({fecha.day}/{fecha.month} {hora})")
+                    with col2:
                         if st.button(f"🗑️", key=f"del_{pid}"):
                             ok, msg = borrar_prediccion(st.session_state.user_id, pid)
                             if ok:
@@ -612,6 +573,8 @@ elif menu == "📊 Mis resultados":
                                 st.rerun()
                             else:
                                 st.error(msg)
+                else:
+                    st.write(f"🔒 {local} {pl}-{pv} vs {visitante} ({fecha.day}/{fecha.month} {hora}) - Partido comenzado")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 4. CALENDARIO
@@ -654,10 +617,11 @@ if st.session_state.is_admin and admin_menu == "⚽ Resultados":
             with col2:
                 gv_new = st.number_input(f"{visitante}", 0, 20, key=f"gv_{pid}")
             with col3:
-                if st.button(f"✅ {fecha.day}/{fecha.month}", key=f"r_{pid}"):
+                if st.button(f"✅", key=f"r_{pid}"):
                     set_resultado(pid, gl_new, gv_new)
                     st.success(f"{local} {gl_new}-{gv_new} {visitante}")
                     st.rerun()
+            st.caption(f"{fecha.day}/{fecha.month} {hora} - {fase}")
             st.divider()
 
 # ════════════════════════════════════════════════════════════════════════════════
