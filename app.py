@@ -17,8 +17,6 @@ st.markdown("""
 <style>
     .stButton button { width: 100%; }
     div[data-testid="column"] { padding: 0 4px; }
-    .delete-btn button { background-color: #ff4444; color: white; }
-    .delete-btn button:hover { background-color: #cc0000; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -100,97 +98,96 @@ CALENDARIO_GRUPOS = [
 
 FASES_ELIMINATORIAS = ["Octavos", "Cuartos", "Semifinal", "Final"]
 
-# ─── POOL DE CONEXIONES (CORREGIDO) ────────────────────────────────────────────
+# ─── POOL DE CONEXIONES ────────────────────────────────────────────────────────
 @st.cache_resource
 def get_pool():
-    """Crea un pool de conexiones que se reutiliza"""
-    return psycopg2.pool.SimpleConnectionPool(1, 10, os.environ["DATABASE_URL"])
+    return psycopg2.pool.SimpleConnectionPool(1, 5, os.environ["DATABASE_URL"])
 
 def get_connection():
-    """Obtiene una conexión del pool"""
     return get_pool().getconn()
 
 def return_connection(conn):
-    """Devuelve la conexión al pool"""
     if conn:
         get_pool().putconn(conn)
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-# ─── CONTEXT MANAGER PARA CONEXIONES ───────────────────────────────────────────
 class DBConnection:
     def __enter__(self):
         self.conn = get_connection()
         return self.conn
-    
     def __exit__(self, exc_type, exc_val, exc_tb):
         return_connection(self.conn)
 
-# ─── CREAR TABLAS ──────────────────────────────────────────────────────────────
-@st.cache_resource
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+# ─── FUNCIÓN PARA CREAR TABLAS (FORZADA, SIN CACHÉ) ────────────────────────────
 def init_db():
-    with DBConnection() as conn:
-        cur = conn.cursor()
-        
-        # Tabla jugadores
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS jugadores (
-                id SERIAL PRIMARY KEY,
-                nombre VARCHAR(50) UNIQUE NOT NULL,
-                email VARCHAR(100) UNIQUE NOT NULL,
-                password_hash VARCHAR(64) NOT NULL,
-                es_admin BOOLEAN DEFAULT FALSE,
-                registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Tabla partidos
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS partidos (
-                id SERIAL PRIMARY KEY,
-                equipo_local VARCHAR(60) NOT NULL,
-                equipo_visitante VARCHAR(60) NOT NULL,
-                goles_local INTEGER DEFAULT NULL,
-                goles_visitante INTEGER DEFAULT NULL,
-                fase VARCHAR(30) NOT NULL,
-                fecha DATE NOT NULL,
-                hora VARCHAR(10) DEFAULT '15:00'
-            )
-        """)
-        
-        # Tabla predicciones
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS predicciones (
-                id SERIAL PRIMARY KEY,
-                jugador_id INTEGER REFERENCES jugadores(id),
-                partido_id INTEGER REFERENCES partidos(id),
-                pred_local INTEGER NOT NULL,
-                pred_visitante INTEGER NOT NULL,
-                puntos INTEGER DEFAULT 0,
-                UNIQUE(jugador_id, partido_id)
-            )
-        """)
-        
-        # Crear admin por defecto
-        admin_pass = hash_password("admin123")
-        cur.execute("""
-            INSERT INTO jugadores (nombre, email, password_hash, es_admin)
-            VALUES ('Admin', 'admin@quiniela.com', %s, TRUE)
-            ON CONFLICT (email) DO NOTHING
-        """, (admin_pass,))
-        
-        # Precargar partidos
-        cur.execute("SELECT COUNT(*) FROM partidos")
-        if cur.fetchone()[0] == 0:
-            for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
-                cur.execute("""
-                    INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
-                    VALUES (%s, %s, %s, %s, %s)
-                """, (local, visitante, fase, fecha_str, hora))
-        
-        conn.commit()
-        return True
+    """Crea todas las tablas necesarias - se ejecuta siempre al inicio"""
+    try:
+        with DBConnection() as conn:
+            cur = conn.cursor()
+            
+            # Tabla jugadores
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS jugadores (
+                    id SERIAL PRIMARY KEY,
+                    nombre VARCHAR(50) UNIQUE NOT NULL,
+                    email VARCHAR(100) UNIQUE NOT NULL,
+                    password_hash VARCHAR(64) NOT NULL,
+                    es_admin BOOLEAN DEFAULT FALSE,
+                    registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Tabla partidos
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS partidos (
+                    id SERIAL PRIMARY KEY,
+                    equipo_local VARCHAR(60) NOT NULL,
+                    equipo_visitante VARCHAR(60) NOT NULL,
+                    goles_local INTEGER DEFAULT NULL,
+                    goles_visitante INTEGER DEFAULT NULL,
+                    fase VARCHAR(30) NOT NULL,
+                    fecha DATE NOT NULL,
+                    hora VARCHAR(10) DEFAULT '15:00'
+                )
+            """)
+            
+            # Tabla predicciones
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS predicciones (
+                    id SERIAL PRIMARY KEY,
+                    jugador_id INTEGER REFERENCES jugadores(id),
+                    partido_id INTEGER REFERENCES partidos(id),
+                    pred_local INTEGER NOT NULL,
+                    pred_visitante INTEGER NOT NULL,
+                    puntos INTEGER DEFAULT 0,
+                    UNIQUE(jugador_id, partido_id)
+                )
+            """)
+            
+            # Crear admin por defecto si no existe
+            admin_pass = hash_password("admin123")
+            cur.execute("""
+                INSERT INTO jugadores (nombre, email, password_hash, es_admin)
+                SELECT 'Admin', 'admin@quiniela.com', %s, TRUE
+                WHERE NOT EXISTS (SELECT 1 FROM jugadores WHERE email = 'admin@quiniela.com')
+            """, (admin_pass,))
+            
+            # Precargar partidos solo si no hay ninguno
+            cur.execute("SELECT COUNT(*) FROM partidos")
+            if cur.fetchone()[0] == 0:
+                for local, visitante, fase, fecha_str, hora in CALENDARIO_GRUPOS:
+                    cur.execute("""
+                        INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (local, visitante, fase, fecha_str, hora))
+            
+            conn.commit()
+            return True
+    except Exception as e:
+        st.error(f"Error creando tablas: {e}")
+        return False
 
 # ─── FUNCIONES DE CONSULTA ─────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
@@ -362,12 +359,12 @@ def add_partido(local, visitante, fase, fecha, hora):
         conn.commit()
         st.cache_data.clear()
 
-# ─── INICIALIZAR ───────────────────────────────────────────────────────────────
-try:
-    init_db()
-except Exception as e:
-    st.error(f"Error de conexión: {e}")
-    st.stop()
+# ─── INICIALIZAR BD (EJECUCIÓN OBLIGATORIA) ─────────────────────────────────────
+# Esto se ejecuta SIEMPRE al iniciar la app
+with st.spinner("Inicializando base de datos..."):
+    if not init_db():
+        st.error("No se pudo inicializar la base de datos")
+        st.stop()
 
 # ─── ESTADO DE SESIÓN ──────────────────────────────────────────────────────────
 if "user_id" not in st.session_state:
@@ -574,7 +571,7 @@ elif menu == "📊 Mis resultados":
                             else:
                                 st.error(msg)
                 else:
-                    st.write(f"🔒 {local} {pl}-{pv} vs {visitante} ({fecha.day}/{fecha.month} {hora}) - Partido comenzado")
+                    st.write(f"🔒 {local} {pl}-{pv} vs {visitante} ({fecha.day}/{fecha.month} {hora})")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 4. CALENDARIO
