@@ -1,2 +1,2 @@
-# quinela-mundial
-mundial 2026
+streamlit==1.35.0
+psycopg2-binary==2.9.9
