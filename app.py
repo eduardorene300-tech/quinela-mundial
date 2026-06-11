@@ -1,5 +1,6 @@
 import streamlit as st
 import psycopg2
+import psycopg2.pool
 import os
 import hashlib
 from datetime import datetime, date, timedelta
@@ -123,259 +124,266 @@ CALENDARIO_GRUPOS = [
 
 FASES_ELIMINATORIAS = ["16avos de Final", "Octavos de Final", "Cuartos de Final", "Semifinal", "Tercer lugar", "Final"]
 
-# ─── Conexión a Neon ───────────────────────────────────────────────────────────
+# ─── Pool de conexiones a Neon ─────────────────────────────────────────────────
 @st.cache_resource
-def get_db_connection():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+def get_db_pool():
+    """Crea un pool de conexiones reutilizable"""
+    return psycopg2.pool.SimpleConnectionPool(1, 10, os.environ["DATABASE_URL"])
+
+def get_connection():
+    """Obtiene una conexión del pool"""
+    return get_db_pool().getconn()
+
+def return_connection(conn):
+    """Devuelve la conexión al pool"""
+    if conn:
+        get_db_pool().putconn(conn)
+
+# Context manager para manejar conexiones automáticamente
+class DBConnection:
+    def __enter__(self):
+        self.conn = get_connection()
+        return self.conn
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return_connection(self.conn)
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# ─── Función para verificar si el partido ya comenzó (CORREGIDA) ────────────────
+# ─── Función para verificar si el partido ya comenzó ───────────────────────────
 def partido_ha_comenzado(fecha_partido, hora_partido):
     """Verifica si el partido YA COMENZÓ (no se puede predecir)"""
     try:
         ahora = datetime.now()
         
-        # Convertir a datetime
         if isinstance(fecha_partido, str):
             fecha_hora_partido = datetime.strptime(f"{fecha_partido} {hora_partido}", "%Y-%m-%d %H:%M")
         else:
             fecha_hora_partido = datetime.combine(fecha_partido, datetime.strptime(hora_partido, "%H:%M").time())
         
-        # Si la fecha del partido es POSTERIOR a ahora → NO ha comenzado
-        if fecha_hora_partido > ahora:
-            return False
-        
-        # Si la fecha del partido es IGUAL o ANTERIOR a ahora → YA COMENZÓ
-        return True
+        return fecha_hora_partido <= ahora
     except Exception as e:
         print(f"Error en partido_ha_comenzado: {e}")
-        return True  # Por seguridad, si hay error, bloqueamos
+        return True
 
 # ─── Crear tablas ───────────────────────────────────────────────────────────────
-@st.cache_resource
 def init_db():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS jugadores (
-            id SERIAL PRIMARY KEY,
-            nombre VARCHAR(50) UNIQUE NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL,
-            password_hash VARCHAR(64) NOT NULL,
-            es_admin BOOLEAN DEFAULT FALSE,
-            registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS partidos (
-            id SERIAL PRIMARY KEY,
-            equipo_local VARCHAR(60) NOT NULL,
-            equipo_visitante VARCHAR(60) NOT NULL,
-            goles_local INTEGER DEFAULT NULL,
-            goles_visitante INTEGER DEFAULT NULL,
-            fase VARCHAR(30) NOT NULL,
-            fecha DATE NOT NULL,
-            hora VARCHAR(10) DEFAULT '15:00',
-            sede VARCHAR(50),
-            precargado BOOLEAN DEFAULT FALSE
-        );
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS predicciones (
-            id SERIAL PRIMARY KEY,
-            jugador_id INTEGER REFERENCES jugadores(id),
-            partido_id INTEGER REFERENCES partidos(id),
-            pred_local INTEGER NOT NULL,
-            pred_visitante INTEGER NOT NULL,
-            puntos INTEGER DEFAULT 0,
-            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(jugador_id, partido_id)
-        );
-    """)
-    
-    cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS precargado BOOLEAN DEFAULT FALSE;")
-    cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS sede VARCHAR(50);")
-    cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS hora VARCHAR(10) DEFAULT '15:00';")
-    cur.execute("ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP;")
-    cur.execute("ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS puntos INTEGER DEFAULT 0;")
-    
-    # Precargar calendario
-    cur.execute("SELECT COUNT(*) FROM partidos WHERE precargado = TRUE")
-    count = cur.fetchone()[0]
-    if count == 0:
-        for local, visitante, fase, fecha_str, sede, hora in CALENDARIO_GRUPOS:
-            cur.execute("""
-                INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora, sede, precargado)
-                VALUES (%s, %s, %s, %s, %s, %s, TRUE)
-                ON CONFLICT DO NOTHING
-            """, (local, visitante, fase, fecha_str, hora, sede))
-    
-    conn.commit()
-    cur.close()
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS jugadores (
+                id SERIAL PRIMARY KEY,
+                nombre VARCHAR(50) UNIQUE NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                password_hash VARCHAR(64) NOT NULL,
+                es_admin BOOLEAN DEFAULT FALSE,
+                registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS partidos (
+                id SERIAL PRIMARY KEY,
+                equipo_local VARCHAR(60) NOT NULL,
+                equipo_visitante VARCHAR(60) NOT NULL,
+                goles_local INTEGER DEFAULT NULL,
+                goles_visitante INTEGER DEFAULT NULL,
+                fase VARCHAR(30) NOT NULL,
+                fecha DATE NOT NULL,
+                hora VARCHAR(10) DEFAULT '15:00',
+                sede VARCHAR(50),
+                precargado BOOLEAN DEFAULT FALSE
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS predicciones (
+                id SERIAL PRIMARY KEY,
+                jugador_id INTEGER REFERENCES jugadores(id),
+                partido_id INTEGER REFERENCES partidos(id),
+                pred_local INTEGER NOT NULL,
+                pred_visitante INTEGER NOT NULL,
+                puntos INTEGER DEFAULT 0,
+                creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(jugador_id, partido_id)
+            );
+        """)
+        
+        # Migraciones
+        cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS precargado BOOLEAN DEFAULT FALSE;")
+        cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS sede VARCHAR(50);")
+        cur.execute("ALTER TABLE partidos ADD COLUMN IF NOT EXISTS hora VARCHAR(10) DEFAULT '15:00';")
+        cur.execute("ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP;")
+        cur.execute("ALTER TABLE predicciones ADD COLUMN IF NOT EXISTS puntos INTEGER DEFAULT 0;")
+        
+        # Precargar calendario
+        cur.execute("SELECT COUNT(*) FROM partidos WHERE precargado = TRUE")
+        count = cur.fetchone()[0]
+        if count == 0:
+            for local, visitante, fase, fecha_str, sede, hora in CALENDARIO_GRUPOS:
+                cur.execute("""
+                    INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora, sede, precargado)
+                    VALUES (%s, %s, %s, %s, %s, %s, TRUE)
+                    ON CONFLICT DO NOTHING
+                """, (local, visitante, fase, fecha_str, hora, sede))
+        
+        conn.commit()
+        cur.close()
 
 # ─── Funciones de consulta ─────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_todos_jugadores():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, nombre, email, registrado_en FROM jugadores ORDER BY registrado_en DESC")
-    rows = cur.fetchall()
-    cur.close()
-    return rows
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, nombre, email, registrado_en FROM jugadores ORDER BY registrado_en DESC")
+        rows = cur.fetchall()
+        cur.close()
+        return rows
 
 @st.cache_data(ttl=300)
 def get_partidos():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, hora, sede FROM partidos ORDER BY fecha, hora, id")
-    rows = cur.fetchall()
-    cur.close()
-    return rows
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, hora, sede FROM partidos ORDER BY fecha, hora, id")
+        rows = cur.fetchall()
+        cur.close()
+        return rows
 
 @st.cache_data(ttl=300)
 def get_tabla_posiciones():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT j.id, j.nombre, 
-               COALESCE(SUM(pr.puntos), 0) as total,
-               COUNT(CASE WHEN pr.puntos = 3 THEN 1 END) as exactos,
-               COUNT(CASE WHEN pr.puntos = 1 THEN 1 END) as ganadores,
-               COUNT(pr.id) as total_predicciones
-        FROM jugadores j
-        LEFT JOIN predicciones pr ON j.id = pr.jugador_id
-        GROUP BY j.id, j.nombre
-        ORDER BY total DESC, exactos DESC
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    return rows
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT j.id, j.nombre, 
+                   COALESCE(SUM(pr.puntos), 0) as total,
+                   COUNT(CASE WHEN pr.puntos = 3 THEN 1 END) as exactos,
+                   COUNT(CASE WHEN pr.puntos = 1 THEN 1 END) as ganadores,
+                   COUNT(pr.id) as total_predicciones
+            FROM jugadores j
+            LEFT JOIN predicciones pr ON j.id = pr.jugador_id
+            GROUP BY j.id, j.nombre
+            ORDER BY total DESC, exactos DESC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        return rows
 
 @st.cache_data(ttl=300)
 def get_predicciones_jugador(jugador_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT p.id, p.equipo_local, p.equipo_visitante, p.goles_local, p.goles_visitante,
-               p.fase, p.fecha, p.hora, pr.pred_local, pr.pred_visitante, pr.puntos
-        FROM predicciones pr
-        JOIN partidos p ON pr.partido_id = p.id
-        WHERE pr.jugador_id = %s
-        ORDER BY p.fecha, p.hora
-    """, (jugador_id,))
-    rows = cur.fetchall()
-    cur.close()
-    return rows
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.id, p.equipo_local, p.equipo_visitante, p.goles_local, p.goles_visitante,
+                   p.fase, p.fecha, p.hora, pr.pred_local, pr.pred_visitante, pr.puntos
+            FROM predicciones pr
+            JOIN partidos p ON pr.partido_id = p.id
+            WHERE pr.jugador_id = %s
+            ORDER BY p.fecha, p.hora
+        """, (jugador_id,))
+        rows = cur.fetchall()
+        cur.close()
+        return rows
 
 def get_prediccion_existente(jugador_id, partido_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT pred_local, pred_visitante FROM predicciones WHERE jugador_id=%s AND partido_id=%s",
-                (jugador_id, partido_id))
-    row = cur.fetchone()
-    cur.close()
-    return row
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT pred_local, pred_visitante FROM predicciones WHERE jugador_id=%s AND partido_id=%s",
+                    (jugador_id, partido_id))
+        row = cur.fetchone()
+        cur.close()
+        return row
 
-# ─── Funciones de escritura CON PROTECCIÓN DE TIEMPO ───────────────────────────
+# ─── Funciones de escritura ────────────────────────────────────────────────────
 def registrar_jugador(nombre, email, password):
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO jugadores (nombre, email, password_hash) VALUES (%s, %s, %s) RETURNING id",
-            (nombre, email, hash_password(password))
-        )
-        uid = cur.fetchone()[0]
-        conn.commit()
-        cur.close()
-        st.cache_data.clear()
-        return uid, None
+        with DBConnection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO jugadores (nombre, email, password_hash) VALUES (%s, %s, %s) RETURNING id",
+                (nombre, email, hash_password(password))
+            )
+            uid = cur.fetchone()[0]
+            conn.commit()
+            cur.close()
+            st.cache_data.clear()
+            return uid, None
     except Exception as e:
         return None, str(e)
 
 def login_jugador(email, password):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT id, nombre, es_admin FROM jugadores WHERE email=%s AND password_hash=%s",
-        (email, hash_password(password))
-    )
-    row = cur.fetchone()
-    cur.close()
-    return row
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, nombre, es_admin FROM jugadores WHERE email=%s AND password_hash=%s",
+            (email, hash_password(password))
+        )
+        row = cur.fetchone()
+        cur.close()
+        return row
 
 def save_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
-    """Guarda predicción SOLO si el partido NO ha comenzado"""
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        # Obtener información del partido
-        cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
-        resultado = cur.fetchone()
-        
-        if not resultado:
+        with DBConnection() as conn:
+            cur = conn.cursor()
+            
+            cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
+            resultado = cur.fetchone()
+            
+            if not resultado:
+                cur.close()
+                return False, "Partido no encontrado"
+            
+            fecha, hora, goles = resultado
+            
+            if goles is not None:
+                cur.close()
+                return False, "❌ El partido ya tiene resultado ingresado"
+            
+            if partido_ha_comenzado(fecha, hora):
+                cur.close()
+                return False, "⛔ NO se puede predecir: el partido YA COMENZÓ"
+            
+            cur.execute("""
+                INSERT INTO predicciones (jugador_id, partido_id, pred_local, pred_visitante, creado_en)
+                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (jugador_id, partido_id)
+                DO UPDATE SET pred_local=EXCLUDED.pred_local, pred_visitante=EXCLUDED.pred_visitante, 
+                              puntos=0, creado_en=CURRENT_TIMESTAMP
+            """, (jugador_id, partido_id, pred_local, pred_visitante))
+            
+            conn.commit()
             cur.close()
-            return False, "Partido no encontrado"
-        
-        fecha, hora, goles = resultado
-        
-        # Verificar si ya tiene resultado
-        if goles is not None:
-            cur.close()
-            return False, "❌ El partido ya tiene resultado ingresado"
-        
-        # VERIFICACIÓN CRÍTICA: ¿El partido ya comenzó?
-        if partido_ha_comenzado(fecha, hora):
-            cur.close()
-            return False, "⛔ NO se puede predecir: el partido YA COMENZÓ o ya pasó su fecha"
-        
-        # Guardar predicción
-        cur.execute("""
-            INSERT INTO predicciones (jugador_id, partido_id, pred_local, pred_visitante, creado_en)
-            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
-            ON CONFLICT (jugador_id, partido_id)
-            DO UPDATE SET pred_local=EXCLUDED.pred_local, pred_visitante=EXCLUDED.pred_visitante, 
-                          puntos=0, creado_en=CURRENT_TIMESTAMP
-        """, (jugador_id, partido_id, pred_local, pred_visitante))
-        
-        conn.commit()
-        cur.close()
-        st.cache_data.clear()
-        return True, "✅ Predicción guardada correctamente"
-        
+            st.cache_data.clear()
+            return True, "✅ Predicción guardada correctamente"
+            
     except Exception as e:
         return False, f"❌ Error: {str(e)}"
 
 def set_resultado(partido_id, goles_local, goles_visitante):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE partidos SET goles_local=%s, goles_visitante=%s WHERE id=%s",
-                (goles_local, goles_visitante, partido_id))
-    
-    cur.execute("SELECT jugador_id, pred_local, pred_visitante FROM predicciones WHERE partido_id=%s", (partido_id,))
-    for jugador_id, pl, pv in cur.fetchall():
-        puntos = 3 if (pl == goles_local and pv == goles_visitante) else (1 if ((pl > pv and goles_local > goles_visitante) or (pl < pv and goles_local < goles_visitante) or (pl == pv and goles_local == goles_visitante)) else 0)
-        cur.execute("UPDATE predicciones SET puntos=%s WHERE partido_id=%s AND jugador_id=%s", 
-                   (puntos, partido_id, jugador_id))
-    
-    conn.commit()
-    cur.close()
-    st.cache_data.clear()
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE partidos SET goles_local=%s, goles_visitante=%s WHERE id=%s",
+                    (goles_local, goles_visitante, partido_id))
+        
+        cur.execute("SELECT jugador_id, pred_local, pred_visitante FROM predicciones WHERE partido_id=%s", (partido_id,))
+        for jugador_id, pl, pv in cur.fetchall():
+            puntos = 3 if (pl == goles_local and pv == goles_visitante) else (1 if ((pl > pv and goles_local > goles_visitante) or (pl < pv and goles_local < goles_visitante) or (pl == pv and goles_local == goles_visitante)) else 0)
+            cur.execute("UPDATE predicciones SET puntos=%s WHERE partido_id=%s AND jugador_id=%s", 
+                       (puntos, partido_id, jugador_id))
+        
+        conn.commit()
+        cur.close()
+        st.cache_data.clear()
 
 def add_partido(local, visitante, fase, fecha, hora, sede=""):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora, sede) VALUES (%s, %s, %s, %s, %s, %s)",
-        (local, visitante, fase, fecha, hora, sede)
-    )
-    conn.commit()
-    cur.close()
-    st.cache_data.clear()
+    with DBConnection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora, sede) VALUES (%s, %s, %s, %s, %s, %s)",
+            (local, visitante, fase, fecha, hora, sede)
+        )
+        conn.commit()
+        cur.close()
+        st.cache_data.clear()
 
 # ─── Inicializar DB ─────────────────────────────────────────────────────────────
 try:
@@ -480,45 +488,39 @@ elif menu == "📅 Calendario":
     st.header("📅 Calendario del Mundial 2026")
     
     partidos = get_partidos()
-    ahora = datetime.now()
     
     for pid, local, visitante, gl, gv, fase, fecha, hora, sede in partidos:
         resultado = f"{gl}-{gv}" if gl is not None else "vs"
         
-        # Determinar estado
         if gl is not None:
             estado = "✅ Finalizado"
         elif partido_ha_comenzado(fecha, hora):
-            estado = "🔴 En curso / Ya comenzó"
+            estado = "🔴 En curso"
         else:
             estado = "⏳ Próximo"
         
         st.write(f"{estado} — **{fecha} {hora}** — {local} **{resultado}** {visitante} — *{fase}*")
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 3. PREDICCIONES (CON PROTECCIÓN)
+# 3. PREDICCIONES
 elif menu == "🎯 Predicciones":
     st.header(f"🎯 Tus Predicciones - {st.session_state.usuario}")
-    st.warning("⚠️ **Importante:** Solo puedes predecir ANTES de que el partido comience. Una vez que el partido empieza, las predicciones se cierran automáticamente.")
+    st.warning("⚠️ Solo puedes predecir ANTES de que el partido comience.")
     
     partidos = get_partidos()
     ahora = datetime.now()
     
-    # Separar partidos
     partidos_disponibles = []
     partidos_cerrados = []
-    partidos_finalizados = []
     
     for p in partidos:
         pid, local, visitante, gl, gv, fase, fecha, hora, sede = p
-        if gl is not None:
-            partidos_finalizados.append(p)
-        elif partido_ha_comenzado(fecha, hora):
-            partidos_cerrados.append(p)
-        else:
-            partidos_disponibles.append(p)
+        if gl is None:
+            if partido_ha_comenzado(fecha, hora):
+                partidos_cerrados.append(p)
+            else:
+                partidos_disponibles.append(p)
     
-    # Partidos disponibles para predecir
     if partidos_disponibles:
         st.subheader(f"📝 Partidos disponibles ({len(partidos_disponibles)})")
         
@@ -528,7 +530,6 @@ elif menu == "🎯 Predicciones":
             val_l = pred[0] if pred else 0
             val_v = pred[1] if pred else 0
             
-            # Calcular tiempo restante
             fecha_hora_partido = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
             tiempo_restante = fecha_hora_partido - ahora
             horas_rest = int(tiempo_restante.total_seconds() // 3600)
@@ -559,19 +560,18 @@ elif menu == "🎯 Predicciones":
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.divider()
     else:
-        st.info("No hay partidos disponibles para predecir en este momento.")
+        st.info("No hay partidos disponibles para predecir.")
     
-    # Partidos cerrados (ya comenzaron)
     if partidos_cerrados:
-        st.subheader(f"🔒 Partidos cerrados (ya comenzaron) - {len(partidos_cerrados)}")
+        st.subheader(f"🔒 Partidos cerrados ({len(partidos_cerrados)})")
         for partido in partidos_cerrados:
             pid, local, visitante, gl, gv, fase, fecha, hora, sede = partido
             pred = get_prediccion_existente(st.session_state.usuario_id, pid)
             if pred:
                 val_l, val_v = pred
-                st.markdown(f'<div class="partido-bloqueado">🔒 {local} {val_l}-{val_v} vs {visitante} - {fecha} {hora}<br>⛔ Partido ya comenzó - No se puede modificar</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="partido-bloqueado">🔒 {local} {val_l}-{val_v} vs {visitante}<br>⛔ Partido ya comenzó</div>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<div class="partido-bloqueado">❌ {local} vs {visitante} - {fecha} {hora}<br>⛔ No realizaste predicción a tiempo</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="partido-bloqueado">❌ {local} vs {visitante}<br>⛔ No realizaste predicción a tiempo</div>', unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 4. MIS RESULTADOS
@@ -600,10 +600,7 @@ elif menu == "📊 Mis resultados":
                 icon = "🟢" if pts == 3 else "🟡" if pts == 1 else "⚫"
                 st.write(f"{icon} **{local}** {pl}-{pv} vs **{visitante}** → Real: {gl}-{gv} → **{pts} pts**")
             else:
-                if partido_ha_comenzado(fecha, hora):
-                    st.write(f"🔒 **{local}** {pl}-{pv} vs **{visitante}** ({fecha} {hora}) - Partido ya comenzó, no se puede modificar")
-                else:
-                    st.write(f"⏳ **{local}** {pl}-{pv} vs **{visitante}** ({fecha} {hora}) - Pendiente")
+                st.write(f"⏳ **{local}** {pl}-{pv} vs **{visitante}** ({fecha} {hora})")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 5. JUGADORES
