@@ -1,6 +1,5 @@
 import streamlit as st
 import psycopg2
-import psycopg2.pool
 import os
 import hashlib
 from datetime import datetime, date, timedelta
@@ -190,19 +189,34 @@ ORDEN_FASES = [
 # CONEXIÓN A LA BASE DE DATOS — pool de conexiones
 # ════════════════════════════════════════════════════════════════════════════════
 
-@st.cache_resource
-def get_pool():
-    return psycopg2.pool.SimpleConnectionPool(
-        minconn=1,
-        maxconn=5,
-        dsn=os.environ["DATABASE_URL"]
-    )
+def _nueva_conexion():
+    return psycopg2.connect(os.environ["DATABASE_URL"])
+
+def _conn_valida(conn):
+    """Comprueba si la conexión sigue viva sin lanzar excepción al usuario."""
+    try:
+        if conn is None or conn.closed:
+            return False
+        conn.cursor().execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+
+# Conexión única reutilizable por sesión de Streamlit
+if "db_conn" not in st.session_state:
+    st.session_state.db_conn = _nueva_conexion()
 
 def get_conn():
-    return get_pool().getconn()
-
-def release_conn(conn):
-    get_pool().putconn(conn)
+    """Devuelve una conexión válida, reconectando si SSL la cerró."""
+    conn = st.session_state.db_conn
+    if not _conn_valida(conn):
+        try:
+            conn.close()
+        except Exception:
+            pass
+        conn = _nueva_conexion()
+        st.session_state.db_conn = conn
+    return conn
 
 def ejecutar_consulta(sql, params=None):
     conn = get_conn()
@@ -210,8 +224,13 @@ def ejecutar_consulta(sql, params=None):
         with conn.cursor() as cur:
             cur.execute(sql, params)
             return cur.fetchall()
-    finally:
-        release_conn(conn)
+    except Exception:
+        # Reconectar y reintentar una vez
+        conn = _nueva_conexion()
+        st.session_state.db_conn = conn
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchall()
 
 def ejecutar_comando(sql, params=None):
     conn = get_conn()
@@ -221,10 +240,20 @@ def ejecutar_comando(sql, params=None):
         conn.commit()
         return True, None
     except Exception as e:
-        conn.rollback()
-        return False, str(e)
-    finally:
-        release_conn(conn)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        # Reconectar y reintentar una vez
+        try:
+            conn = _nueva_conexion()
+            st.session_state.db_conn = conn
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+            conn.commit()
+            return True, None
+        except Exception as e2:
+            return False, str(e2)
 
 def ejecutar_comandos_batch(sqls_params):
     """Ejecuta múltiples comandos en una sola transacción."""
@@ -236,10 +265,21 @@ def ejecutar_comandos_batch(sqls_params):
         conn.commit()
         return True, None
     except Exception as e:
-        conn.rollback()
-        return False, str(e)
-    finally:
-        release_conn(conn)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        # Reconectar y reintentar una vez
+        try:
+            conn = _nueva_conexion()
+            st.session_state.db_conn = conn
+            with conn.cursor() as cur:
+                for sql, params in sqls_params:
+                    cur.execute(sql, params)
+            conn.commit()
+            return True, None
+        except Exception as e2:
+            return False, str(e2)
 
 # ════════════════════════════════════════════════════════════════════════════════
 # INICIALIZACIÓN DE BD — solo una vez
@@ -304,8 +344,6 @@ def init_db():
                     """, (local, visitante, fase, fecha_str, hora))
 
         conn.commit()
-    finally:
-        release_conn(conn)
 
 # ════════════════════════════════════════════════════════════════════════════════
 # UTILIDADES
