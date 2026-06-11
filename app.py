@@ -186,7 +186,7 @@ ORDEN_FASES = [
 ]
 
 # ════════════════════════════════════════════════════════════════════════════════
-# CONEXIÓN A LA BASE DE DATOS — pool de conexiones
+# CONEXIÓN A LA BASE DE DATOS — reconexión automática ante caídas SSL
 # ════════════════════════════════════════════════════════════════════════════════
 
 def _nueva_conexion():
@@ -239,7 +239,7 @@ def ejecutar_comando(sql, params=None):
             cur.execute(sql, params)
         conn.commit()
         return True, None
-    except Exception as e:
+    except Exception:
         try:
             conn.rollback()
         except Exception:
@@ -264,7 +264,7 @@ def ejecutar_comandos_batch(sqls_params):
                 cur.execute(sql, params)
         conn.commit()
         return True, None
-    except Exception as e:
+    except Exception:
         try:
             conn.rollback()
         except Exception:
@@ -282,70 +282,6 @@ def ejecutar_comandos_batch(sqls_params):
             return False, str(e2)
 
 # ════════════════════════════════════════════════════════════════════════════════
-# INICIALIZACIÓN DE BD — solo una vez
-# ════════════════════════════════════════════════════════════════════════════════
-
-def init_db():
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            # Crear tablas
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS jugadores (
-                    id SERIAL PRIMARY KEY,
-                    nombre VARCHAR(50) UNIQUE NOT NULL,
-                    email VARCHAR(100) UNIQUE NOT NULL,
-                    password_hash VARCHAR(64) NOT NULL,
-                    es_admin BOOLEAN DEFAULT FALSE,
-                    registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS partidos (
-                    id SERIAL PRIMARY KEY,
-                    equipo_local VARCHAR(60) NOT NULL,
-                    equipo_visitante VARCHAR(60) NOT NULL,
-                    goles_local INTEGER DEFAULT NULL,
-                    goles_visitante INTEGER DEFAULT NULL,
-                    fase VARCHAR(30) NOT NULL,
-                    fecha DATE NOT NULL,
-                    hora VARCHAR(10) DEFAULT '15:00'
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS predicciones (
-                    id SERIAL PRIMARY KEY,
-                    jugador_id INTEGER REFERENCES jugadores(id),
-                    partido_id INTEGER REFERENCES partidos(id),
-                    pred_local INTEGER NOT NULL,
-                    pred_visitante INTEGER NOT NULL,
-                    puntos INTEGER DEFAULT 0,
-                    UNIQUE(jugador_id, partido_id)
-                )
-            """)
-
-            # Admin por defecto
-            admin_pass = hash_password("admin123")
-            cur.execute("""
-                INSERT INTO jugadores (nombre, email, password_hash, es_admin)
-                SELECT 'Admin', 'admin@quiniela.com', %s, TRUE
-                WHERE NOT EXISTS (SELECT 1 FROM jugadores WHERE email = 'admin@quiniela.com')
-            """, (admin_pass,))
-
-            # ✅ Solo cargar partidos si la tabla está vacía
-            cur.execute("SELECT COUNT(*) FROM partidos")
-            count = cur.fetchone()[0]
-
-            if count == 0:
-                for local, visitante, fase, fecha_str, hora in TODOS_LOS_PARTIDOS:
-                    cur.execute("""
-                        INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """, (local, visitante, fase, fecha_str, hora))
-
-        conn.commit()
-
-# ════════════════════════════════════════════════════════════════════════════════
 # UTILIDADES
 # ════════════════════════════════════════════════════════════════════════════════
 
@@ -360,7 +296,7 @@ def partido_ha_comenzado(fecha_partido, hora_partido):
         else:
             fecha_hora = datetime.combine(fecha_partido, datetime.strptime(hora_partido, "%H:%M").time())
         return fecha_hora.replace(tzinfo=VENEZUELA_TZ) <= ahora
-    except:
+    except Exception:
         return False
 
 def tiempo_restante(fecha_partido, hora_partido):
@@ -378,8 +314,70 @@ def tiempo_restante(fecha_partido, hora_partido):
         horas = int(resto.total_seconds() // 3600)
         mins = int((resto.total_seconds() % 3600) // 60)
         return False, f"🟢 {horas}h {mins}m"
-    except:
+    except Exception:
         return False, "?"
+
+# ════════════════════════════════════════════════════════════════════════════════
+# INICIALIZACIÓN DE BD — solo una vez
+# ════════════════════════════════════════════════════════════════════════════════
+
+def init_db():
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS jugadores (
+                id SERIAL PRIMARY KEY,
+                nombre VARCHAR(50) UNIQUE NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                password_hash VARCHAR(64) NOT NULL,
+                es_admin BOOLEAN DEFAULT FALSE,
+                registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS partidos (
+                id SERIAL PRIMARY KEY,
+                equipo_local VARCHAR(60) NOT NULL,
+                equipo_visitante VARCHAR(60) NOT NULL,
+                goles_local INTEGER DEFAULT NULL,
+                goles_visitante INTEGER DEFAULT NULL,
+                fase VARCHAR(30) NOT NULL,
+                fecha DATE NOT NULL,
+                hora VARCHAR(10) DEFAULT '15:00'
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS predicciones (
+                id SERIAL PRIMARY KEY,
+                jugador_id INTEGER REFERENCES jugadores(id),
+                partido_id INTEGER REFERENCES partidos(id),
+                pred_local INTEGER NOT NULL,
+                pred_visitante INTEGER NOT NULL,
+                puntos INTEGER DEFAULT 0,
+                UNIQUE(jugador_id, partido_id)
+            )
+        """)
+
+        # Admin por defecto
+        admin_pass = hash_password("admin123")
+        cur.execute("""
+            INSERT INTO jugadores (nombre, email, password_hash, es_admin)
+            SELECT 'Admin', 'admin@quiniela.com', %s, TRUE
+            WHERE NOT EXISTS (SELECT 1 FROM jugadores WHERE email = 'admin@quiniela.com')
+        """, (admin_pass,))
+
+        # Solo cargar partidos si la tabla está vacía
+        cur.execute("SELECT COUNT(*) FROM partidos")
+        count = cur.fetchone()[0]
+
+        if count == 0:
+            for local, visitante, fase, fecha_str, hora in TODOS_LOS_PARTIDOS:
+                cur.execute("""
+                    INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (local, visitante, fase, fecha_str, hora))
+
+    conn.commit()
 
 # ════════════════════════════════════════════════════════════════════════════════
 # FUNCIONES DE NEGOCIO — con caché granular
@@ -450,10 +448,11 @@ def registrar_usuario(nombre, email, password):
         conn.commit()
         return uid, None
     except Exception as e:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         return None, str(e)
-    finally:
-        release_conn(conn)
 
 def login(email, password):
     rows = ejecutar_consulta(
@@ -690,7 +689,7 @@ elif menu == "🎯 Predecir":
     st.divider()
 
     partidos = get_partidos()
-    # ✅ Una sola query para todas las predicciones del usuario
+    # Una sola query para todas las predicciones del usuario
     todas_preds = get_predicciones_usuario_dict(st.session_state.user_id)
 
     disponibles = [p for p in partidos if p[3] is None]
