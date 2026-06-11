@@ -203,6 +203,20 @@ def init_db():
     cur.close()
     conn.close()
 
+def migrar_db():
+    """Agrega columnas nuevas a tablas existentes si no existen (migracion segura)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        ALTER TABLE partidos ADD COLUMN IF NOT EXISTS precargado BOOLEAN DEFAULT FALSE;
+    """)
+    cur.execute("""
+        ALTER TABLE partidos ADD COLUMN IF NOT EXISTS sede VARCHAR(50);
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
 def precargar_calendario():
     """Inserta todos los partidos de la fase de grupos si aún no están."""
     conn = get_connection()
@@ -361,6 +375,7 @@ def calcular_puntos(pred_l, pred_v, real_l, real_v):
 # ─── Inicializar DB ─────────────────────────────────────────────────────────────
 try:
     init_db()
+    migrar_db()
     precargar_calendario()
 except Exception as e:
     st.error(f"❌ Error de base de datos: {e}")
