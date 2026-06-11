@@ -1,9 +1,9 @@
 import streamlit as st
 import psycopg2
-import psycopg2.pool
 import os
 import hashlib
 from datetime import datetime, date, timedelta
+from contextlib import contextmanager
 
 # ─── Configuración de página ───────────────────────────────────────────────────
 st.set_page_config(
@@ -16,12 +16,12 @@ st.set_page_config(
 st.markdown("""
 <style>
     .stButton button { width: 100%; }
-    .partido-item { border-bottom: 1px solid #ddd; padding: 8px 0; margin: 4px 0; }
     div[data-testid="column"] { padding: 0 4px; }
+    .partido-row { border-bottom: 1px solid #eee; padding: 8px 0; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── DATOS ─────────────────────────────────────────────────────────────────────
+# ─── DATOS COMPLETOS ───────────────────────────────────────────────────────────
 CALENDARIO_GRUPOS = [
     ("Mexico", "Sudafrica", "Grupo A", "2026-06-11", "15:00"),
     ("Corea del Sur", "Republica Checa", "Grupo A", "2026-06-11", "18:00"),
@@ -99,22 +99,23 @@ CALENDARIO_GRUPOS = [
 
 FASES_ELIMINATORIAS = ["Octavos", "Cuartos", "Semifinal", "Final"]
 
-# ─── Conexión a Neon ───────────────────────────────────────────────────────────
+# ─── FUNCIÓN DE CONEXIÓN ÚNICA (CORREGIDA) ─────────────────────────────────────
+# NO cerramos la conexión global, la mantenemos viva
 @st.cache_resource
 def get_db_connection():
-    """Crea una conexión directa (más simple y rápida que pool)"""
+    """Retorna una conexión única que se reutiliza"""
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# ─── Crear tablas (ejecutar una sola vez) ──────────────────────────────────────
+# ─── CREAR TABLAS (UNA SOLA VEZ) ───────────────────────────────────────────────
 @st.cache_resource
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Crear tabla jugadores
+    # Tabla jugadores
     cur.execute("""
         CREATE TABLE IF NOT EXISTS jugadores (
             id SERIAL PRIMARY KEY,
@@ -126,7 +127,7 @@ def init_db():
         )
     """)
     
-    # Crear tabla partidos
+    # Tabla partidos
     cur.execute("""
         CREATE TABLE IF NOT EXISTS partidos (
             id SERIAL PRIMARY KEY,
@@ -140,7 +141,7 @@ def init_db():
         )
     """)
     
-    # Crear tabla predicciones
+    # Tabla predicciones
     cur.execute("""
         CREATE TABLE IF NOT EXISTS predicciones (
             id SERIAL PRIMARY KEY,
@@ -153,7 +154,7 @@ def init_db():
         )
     """)
     
-    # Crear usuario admin por defecto (opcional)
+    # Crear admin por defecto
     admin_pass = hash_password("admin123")
     cur.execute("""
         INSERT INTO jugadores (nombre, email, password_hash, es_admin)
@@ -171,19 +172,16 @@ def init_db():
             """, (local, visitante, fase, fecha_str, hora))
     
     conn.commit()
-    cur.close()
-    conn.close()
+    # NO cerramos la conexión aquí, la mantenemos viva
     return True
 
-# ─── Funciones de consulta ─────────────────────────────────────────────────────
+# ─── FUNCIONES DE CONSULTA (NO CIERRAN CONEXIÓN) ───────────────────────────────
 @st.cache_data(ttl=300)
 def get_todos_jugadores():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT id, nombre FROM jugadores ORDER BY nombre")
     rows = cur.fetchall()
-    cur.close()
-    conn.close()
     return rows
 
 @st.cache_data(ttl=300)
@@ -192,8 +190,6 @@ def get_partidos():
     cur = conn.cursor()
     cur.execute("SELECT id, equipo_local, equipo_visitante, goles_local, goles_visitante, fase, fecha, hora FROM partidos ORDER BY fecha, hora")
     rows = cur.fetchall()
-    cur.close()
-    conn.close()
     return rows
 
 @st.cache_data(ttl=300)
@@ -210,8 +206,6 @@ def get_tabla_posiciones():
         ORDER BY total DESC, exactos DESC
     """)
     rows = cur.fetchall()
-    cur.close()
-    conn.close()
     return rows
 
 @st.cache_data(ttl=300)
@@ -227,8 +221,6 @@ def get_mis_predicciones(jugador_id):
         ORDER BY p.fecha, p.hora
     """, (jugador_id,))
     rows = cur.fetchall()
-    cur.close()
-    conn.close()
     return rows
 
 def get_prediccion(jugador_id, partido_id):
@@ -237,11 +229,9 @@ def get_prediccion(jugador_id, partido_id):
     cur.execute("SELECT pred_local, pred_visitante FROM predicciones WHERE jugador_id=%s AND partido_id=%s",
                 (jugador_id, partido_id))
     row = cur.fetchone()
-    cur.close()
-    conn.close()
     return row
 
-# ─── Funciones de escritura ────────────────────────────────────────────────────
+# ─── FUNCIONES DE ESCRITURA (CON TRANSACCIONES) ────────────────────────────────
 def registrar_usuario(nombre, email, password):
     try:
         conn = get_db_connection()
@@ -252,48 +242,36 @@ def registrar_usuario(nombre, email, password):
         )
         uid = cur.fetchone()[0]
         conn.commit()
-        cur.close()
-        conn.close()
         st.cache_data.clear()
         return uid, None
     except Exception as e:
         return None, str(e)
 
 def login(email, password):
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT id, nombre, es_admin FROM jugadores WHERE email=%s AND password_hash=%s",
-            (email, hash_password(password))
-        )
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        return row
-    except Exception as e:
-        return None
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, nombre, es_admin FROM jugadores WHERE email=%s AND password_hash=%s",
+        (email, hash_password(password))
+    )
+    row = cur.fetchone()
+    return row
 
 def guardar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Verificar si el partido ya comenzó
+        # Verificar estado del partido
         cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
         fecha, hora, goles = cur.fetchone()
         
         if goles is not None:
-            cur.close()
-            conn.close()
             return False, "Partido ya finalizado"
         
-        # Verificar si la fecha ya pasó
         ahora = datetime.now()
-        fecha_hora_partido = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-        if fecha_hora_partido <= ahora:
-            cur.close()
-            conn.close()
+        fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
+        if fecha_hora <= ahora:
             return False, "El partido ya comenzó"
         
         cur.execute("""
@@ -304,8 +282,6 @@ def guardar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
         """, (jugador_id, partido_id, pred_local, pred_visitante))
         
         conn.commit()
-        cur.close()
-        conn.close()
         st.cache_data.clear()
         return True, "Predicción guardada"
     except Exception as e:
@@ -330,8 +306,6 @@ def set_resultado(partido_id, goles_local, goles_visitante):
                    (puntos, partido_id, jugador_id))
     
     conn.commit()
-    cur.close()
-    conn.close()
     st.cache_data.clear()
 
 def add_partido(local, visitante, fase, fecha, hora):
@@ -342,32 +316,30 @@ def add_partido(local, visitante, fase, fecha, hora):
         (local, visitante, fase, fecha, hora)
     )
     conn.commit()
-    cur.close()
-    conn.close()
     st.cache_data.clear()
 
-# ─── Inicializar base de datos ─────────────────────────────────────────────────
+# ─── INICIALIZAR ───────────────────────────────────────────────────────────────
 try:
     init_db()
 except Exception as e:
     st.error(f"Error de conexión: {e}")
     st.stop()
 
-# ─── Estado de sesión ──────────────────────────────────────────────────────────
+# ─── ESTADO DE SESIÓN ──────────────────────────────────────────────────────────
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
     st.session_state.user_name = None
     st.session_state.is_admin = False
 
-# ─── Header ───────────────────────────────────────────────────────────────────
+# ─── HEADER ────────────────────────────────────────────────────────────────────
 st.title("⚽ Quiniela Mundial 2026")
 st.caption("11 Jun - 19 Jul 2026 | USA · México · Canadá")
 
-# ─── Login / Registro ──────────────────────────────────────────────────────────
+# ─── LOGIN / REGISTRO ──────────────────────────────────────────────────────────
 if not st.session_state.user_id:
     with st.sidebar:
         st.subheader("🔐 Acceso")
-        tab1, tab2 = st.tabs(["Iniciar sesión", "Registrarse"])
+        tab1, tab2 = st.tabs(["Login", "Registro"])
         
         with tab1:
             email = st.text_input("Email", key="login_email")
@@ -399,13 +371,10 @@ if not st.session_state.user_id:
                     if uid:
                         st.success("¡Registrado! Ahora inicia sesión")
                     else:
-                        if "unique" in str(err).lower():
-                            st.error("Email o nombre ya existe")
-                        else:
-                            st.error(f"Error: {err}")
+                        st.error("Email o nombre ya existe" if "unique" in str(err).lower() else f"Error: {err}")
     st.stop()
 
-# ─── Sidebar con menú ─────────────────────────────────────────────────────────
+# ─── SIDEBAR CON MENÚ ──────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown(f"**👤 {st.session_state.user_name}**")
     if st.button("🚪 Cerrar sesión", use_container_width=True):
@@ -441,7 +410,7 @@ if menu == "🏆 Tabla":
                 icon = "🥉"
             else:
                 icon = f"{i}."
-            st.markdown(f"{icon} **{nombre}** — **{pts} pts** (🟢{exactos} exactos / 🟡{ganadores} ganador)")
+            st.markdown(f"{icon} **{nombre}** — **{pts} pts** (🟢{exactos} / 🟡{ganadores})")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 2. PREDICCIONES
@@ -451,7 +420,6 @@ elif menu == "🎯 Predecir":
     partidos = get_partidos()
     ahora = datetime.now()
     
-    # Filtrar partidos disponibles
     disponibles = []
     for p in partidos:
         pid, local, visitante, gl, gv, fase, fecha, hora = p
@@ -469,7 +437,6 @@ elif menu == "🎯 Predecir":
             val_l = pred[0] if pred else 0
             val_v = pred[1] if pred else 0
             
-            # Tiempo restante
             fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
             resto = fecha_hora - ahora
             horas = int(resto.total_seconds() // 3600)
@@ -545,7 +512,7 @@ elif menu == "📅 Calendario":
             fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
             icon = "🔴" if fecha_hora <= ahora else "⏳"
         
-        st.write(f"{icon} **{fecha.day}/{fecha.month} {hora}** — {local} {resultado} {visitante} ({fase})")
+        st.write(f"{icon} **{fecha.day}/{fecha.month} {hora}** — {local} {resultado} {visitante}")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ADMIN: RESULTADOS
