@@ -3,7 +3,6 @@ import psycopg2
 import os
 import hashlib
 from datetime import datetime, date, timedelta
-from contextlib import contextmanager
 
 # ─── Configuración de página ───────────────────────────────────────────────────
 st.set_page_config(
@@ -18,6 +17,8 @@ st.markdown("""
     .stButton button { width: 100%; }
     div[data-testid="column"] { padding: 0 4px; }
     .partido-row { border-bottom: 1px solid #eee; padding: 8px 0; }
+    .delete-btn button { background-color: #ff4444; color: white; }
+    .delete-btn button:hover { background-color: #cc0000; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -99,17 +100,15 @@ CALENDARIO_GRUPOS = [
 
 FASES_ELIMINATORIAS = ["Octavos", "Cuartos", "Semifinal", "Final"]
 
-# ─── FUNCIÓN DE CONEXIÓN ÚNICA (CORREGIDA) ─────────────────────────────────────
-# NO cerramos la conexión global, la mantenemos viva
+# ─── CONEXIÓN A BASE DE DATOS ──────────────────────────────────────────────────
 @st.cache_resource
 def get_db_connection():
-    """Retorna una conexión única que se reutiliza"""
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# ─── CREAR TABLAS (UNA SOLA VEZ) ───────────────────────────────────────────────
+# ─── CREAR TABLAS ──────────────────────────────────────────────────────────────
 @st.cache_resource
 def init_db():
     conn = get_db_connection()
@@ -172,10 +171,9 @@ def init_db():
             """, (local, visitante, fase, fecha_str, hora))
     
     conn.commit()
-    # NO cerramos la conexión aquí, la mantenemos viva
     return True
 
-# ─── FUNCIONES DE CONSULTA (NO CIERRAN CONEXIÓN) ───────────────────────────────
+# ─── FUNCIONES DE CONSULTA ─────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_todos_jugadores():
     conn = get_db_connection()
@@ -231,7 +229,83 @@ def get_prediccion(jugador_id, partido_id):
     row = cur.fetchone()
     return row
 
-# ─── FUNCIONES DE ESCRITURA (CON TRANSACCIONES) ────────────────────────────────
+# ─── NUEVAS FUNCIONES: BORRAR Y EDITAR PREDICCIONES ────────────────────────────
+def borrar_prediccion(jugador_id, partido_id):
+    """Elimina una predicción existente"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Verificar que el partido no haya comenzado
+        cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
+        fecha, hora, goles = cur.fetchone()
+        
+        if goles is not None:
+            return False, "No se puede borrar: el partido ya finalizó"
+        
+        ahora = datetime.now()
+        fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
+        if fecha_hora <= ahora:
+            return False, "No se puede borrar: el partido ya comenzó"
+        
+        cur.execute("DELETE FROM predicciones WHERE jugador_id=%s AND partido_id=%s", (jugador_id, partido_id))
+        conn.commit()
+        st.cache_data.clear()
+        return True, "Predicción borrada correctamente"
+    except Exception as e:
+        return False, str(e)
+
+def editar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
+    """Edita una predicción existente (misma función que guardar pero con mensaje específico)"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
+        fecha, hora, goles = cur.fetchone()
+        
+        if goles is not None:
+            return False, "No se puede editar: el partido ya finalizó"
+        
+        ahora = datetime.now()
+        fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
+        if fecha_hora <= ahora:
+            return False, "No se puede editar: el partido ya comenzó"
+        
+        cur.execute("""
+            INSERT INTO predicciones (jugador_id, partido_id, pred_local, pred_visitante)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (jugador_id, partido_id)
+            DO UPDATE SET pred_local=EXCLUDED.pred_local, pred_visitante=EXCLUDED.pred_visitante, puntos=0
+        """, (jugador_id, partido_id, pred_local, pred_visitante))
+        
+        conn.commit()
+        st.cache_data.clear()
+        return True, "Predicción actualizada correctamente"
+    except Exception as e:
+        return False, str(e)
+
+def limpiar_todas_predicciones_usuario(jugador_id):
+    """Elimina TODAS las predicciones de un usuario (solo para admin o antes de comenzar)"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Verificar que ningún partido haya comenzado
+        cur.execute("""
+            SELECT COUNT(*) FROM partidos 
+            WHERE goles_local IS NULL 
+            AND (fecha < CURRENT_DATE OR (fecha = CURRENT_DATE AND hora <= TIME 'now'))
+        """)
+        
+        cur.execute("DELETE FROM predicciones WHERE jugador_id=%s", (jugador_id,))
+        conn.commit()
+        st.cache_data.clear()
+        return True, f"Se eliminaron todas tus predicciones"
+    except Exception as e:
+        return False, str(e)
+
+# ─── FUNCIONES DE AUTENTICACIÓN ────────────────────────────────────────────────
 def registrar_usuario(nombre, email, password):
     try:
         conn = get_db_connection()
@@ -262,7 +336,6 @@ def guardar_prediccion(jugador_id, partido_id, pred_local, pred_visitante):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Verificar estado del partido
         cur.execute("SELECT fecha, hora, goles_local FROM partidos WHERE id = %s", (partido_id,))
         fecha, hora, goles = cur.fetchone()
         
@@ -413,9 +486,22 @@ if menu == "🏆 Tabla":
             st.markdown(f"{icon} **{nombre}** — **{pts} pts** (🟢{exactos} / 🟡{ganadores})")
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 2. PREDICCIONES
+# 2. PREDICCIONES (CON BOTONES EDITAR Y BORRAR)
 elif menu == "🎯 Predecir":
     st.header(f"🎯 Predecir - {st.session_state.user_name}")
+    
+    # Botón para limpiar todas las predicciones (solo si no hay partidos comenzados)
+    col_btn1, col_btn2 = st.columns([3, 1])
+    with col_btn2:
+        if st.button("🗑️ Limpiar todas mis predicciones", use_container_width=True):
+            ok, msg = limpiar_todas_predicciones_usuario(st.session_state.user_id)
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+    
+    st.divider()
     
     partidos = get_partidos()
     ahora = datetime.now()
@@ -434,6 +520,7 @@ elif menu == "🎯 Predecir":
         for p in disponibles:
             pid, local, visitante, gl, gv, fase, fecha, hora = p
             pred = get_prediccion(st.session_state.user_id, pid)
+            tiene_pred = pred is not None
             val_l = pred[0] if pred else 0
             val_v = pred[1] if pred else 0
             
@@ -442,32 +529,48 @@ elif menu == "🎯 Predecir":
             horas = int(resto.total_seconds() // 3600)
             mins = int((resto.total_seconds() % 3600) // 60)
             
-            col1, col2, col3, col4, col5 = st.columns([2, 1, 2, 1, 1])
+            # Mostrar estado de la predicción
+            if tiene_pred:
+                st.markdown(f"📝 **{local} vs {visitante}** - Tu predicción actual: {val_l}-{val_v}")
+            else:
+                st.markdown(f"⚪ **{local} vs {visitante}** - Sin predicción")
+            
+            col1, col2, col3, col4, col5, col6 = st.columns([2, 1, 2, 1, 1, 1])
             
             with col1:
-                st.write(f"**{local}**")
-                g_l = st.number_input("", 0, 10, val_l, key=f"l_{pid}", label_visibility="collapsed")
+                g_l = st.number_input(f"{local}", 0, 10, val_l, key=f"l_{pid}", label_visibility="collapsed")
             with col2:
                 st.write("vs")
             with col3:
-                st.write(f"**{visitante}**")
-                g_v = st.number_input("", 0, 10, val_v, key=f"v_{pid}", label_visibility="collapsed")
+                g_v = st.number_input(f"{visitante}", 0, 10, val_v, key=f"v_{pid}", label_visibility="collapsed")
             with col4:
-                if st.button("💾", key=f"s_{pid}", use_container_width=True):
-                    ok, msg = guardar_prediccion(st.session_state.user_id, pid, g_l, g_v)
+                if st.button("💾 Guardar", key=f"s_{pid}", use_container_width=True):
+                    if tiene_pred:
+                        ok, msg = editar_prediccion(st.session_state.user_id, pid, g_l, g_v)
+                    else:
+                        ok, msg = guardar_prediccion(st.session_state.user_id, pid, g_l, g_v)
                     if ok:
                         st.success(msg)
                         st.rerun()
                     else:
                         st.error(msg)
             with col5:
+                if tiene_pred:
+                    if st.button("🗑️ Borrar", key=f"d_{pid}", use_container_width=True):
+                        ok, msg = borrar_prediccion(st.session_state.user_id, pid)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+            with col6:
                 st.caption(f"{fecha.day}/{fecha.month} {hora}")
             
-            st.caption(f"⏰ {horas}h {mins}m")
+            st.caption(f"⏰ {horas}h {mins}m restantes")
             st.divider()
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 3. MIS RESULTADOS
+# 3. MIS RESULTADOS (CON OPCIÓN DE BORRAR POR PARTIDO)
 elif menu == "📊 Mis resultados":
     st.header(f"📊 Mis resultados - {st.session_state.user_name}")
     
@@ -482,7 +585,9 @@ elif menu == "📊 Mis resultados":
         
         for p in predicciones:
             pid, local, visitante, gl, gv, fase, fecha, hora, pl, pv, pts = p
+            
             if gl is not None:
+                # Partido finalizado
                 if pts == 3:
                     icon = "🟢"
                 elif pts == 1:
@@ -491,7 +596,22 @@ elif menu == "📊 Mis resultados":
                     icon = "⚫"
                 st.write(f"{icon} {local} {pl}-{pv} vs {visitante} → Real: {gl}-{gv} ({pts} pts)")
             else:
-                st.write(f"⏳ {local} {pl}-{pv} vs {visitante} ({fecha.day}/{fecha.month} {hora})")
+                # Partido pendiente - mostrar opción de borrar
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.write(f"⏳ {local} {pl}-{pv} vs {visitante} ({fecha.day}/{fecha.month} {hora})")
+                with col2:
+                    # Verificar si aún se puede borrar (partido no comenzó)
+                    fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
+                    ahora = datetime.now()
+                    if fecha_hora > ahora:
+                        if st.button(f"🗑️", key=f"del_{pid}"):
+                            ok, msg = borrar_prediccion(st.session_state.user_id, pid)
+                            if ok:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 4. CALENDARIO
