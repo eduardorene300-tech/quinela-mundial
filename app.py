@@ -4,7 +4,7 @@ import psycopg2.pool
 import os
 import hashlib
 from datetime import datetime, date, timedelta
-import pytz
+from zoneinfo import ZoneInfo
 
 # ─── Configuración de página ───────────────────────────────────────────────────
 st.set_page_config(
@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 # ─── ZONA HORARIA DE VENEZUELA ─────────────────────────────────────────────────
-VENEZUELA_TZ = pytz.timezone('America/Caracas')  # UTC-4
+VENEZUELA_TZ = ZoneInfo('America/Caracas')  # UTC-4
 
 def ahora_venezuela():
     """Retorna la fecha y hora actual en Venezuela"""
@@ -141,8 +141,8 @@ def partido_ha_comenzado(fecha_partido, hora_partido):
         else:
             fecha_hora_partido = datetime.combine(fecha_partido, datetime.strptime(hora_partido, "%H:%M").time())
         
-        # Asignar zona horaria de Venezuela (los partidos son en USA, pero usamos hora Venezuela como referencia)
-        fecha_hora_partido = VENEZUELA_TZ.localize(fecha_hora_partido)
+        # Asignar zona horaria de Venezuela
+        fecha_hora_partido = fecha_hora_partido.replace(tzinfo=VENEZUELA_TZ)
         
         # Si la fecha del partido es POSTERIOR a ahora → NO ha comenzado
         return fecha_hora_partido <= ahora
@@ -505,7 +505,7 @@ elif menu == "🎯 Predecir":
             
             # Calcular si el partido ya comenzó (usando hora Venezuela)
             fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-            fecha_hora_tz = VENEZUELA_TZ.localize(fecha_hora)
+            fecha_hora_tz = fecha_hora.replace(tzinfo=VENEZUELA_TZ)
             ya_comenzo = fecha_hora_tz <= ahora
             
             if ya_comenzo:
@@ -584,7 +584,7 @@ elif menu == "📊 Mis resultados":
                 st.write(f"{icon} {local} {pl}-{pv} vs {visitante} → Real: {gl}-{gv} ({pts} pts)")
             else:
                 fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-                fecha_hora_tz = VENEZUELA_TZ.localize(fecha_hora)
+                fecha_hora_tz = fecha_hora.replace(tzinfo=VENEZUELA_TZ)
                 ahora = ahora_venezuela()
                 if fecha_hora_tz > ahora:
                     col1, col2 = st.columns([4, 1])
@@ -618,7 +618,7 @@ elif menu == "📅 Calendario":
         else:
             resultado = "vs"
             fecha_hora = datetime.combine(fecha, datetime.strptime(hora, "%H:%M").time())
-            fecha_hora_tz = VENEZUELA_TZ.localize(fecha_hora)
+            fecha_hora_tz = fecha_hora.replace(tzinfo=VENEZUELA_TZ)
             if fecha_hora_tz <= ahora:
                 icon = "🔴"
             else:
