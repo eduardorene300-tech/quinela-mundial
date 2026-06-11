@@ -1,0 +1,259 @@
+import streamlit as st
+import psycopg2
+import os
+from datetime import datetime
+
+# ─── Configuración de página ───────────────────────────────────────────────────
+st.set_page_config(
+    page_title="⚽ Quiniela Mundial",
+    page_icon="⚽",
+    layout="wide"
+)
+
+# ─── Conexión a Neon (base de datos) ───────────────────────────────────────────
+def get_connection():
+    return psycopg2.connect(os.environ["DATABASE_URL"])
+
+# ─── Crear tablas si no existen ────────────────────────────────────────────────
+def init_db():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS partidos (
+            id SERIAL PRIMARY KEY,
+            equipo_local VARCHAR(50) NOT NULL,
+            equipo_visitante VARCHAR(50) NOT NULL,
+            goles_local INTEGER DEFAULT NULL,
+            goles_visitante INTEGER DEFAULT NULL,
+            fase VARCHAR(30) NOT NULL,
+            fecha TIMESTAMP NOT NULL
+        );
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS predicciones (
+            id SERIAL PRIMARY KEY,
+            usuario VARCHAR(50) NOT NULL,
+            partido_id INTEGER REFERENCES partidos(id),
+            pred_local INTEGER NOT NULL,
+            pred_visitante INTEGER NOT NULL,
+            puntos INTEGER DEFAULT 0,
+            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(usuario, partido_id)
+        );
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# ─── Funciones de base de datos ────────────────────────────────────────────────
+def get_partidos():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM partidos ORDER BY fecha")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+def add_partido(local, visitante, fase, fecha):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha) VALUES (%s, %s, %s, %s)",
+        (local, visitante, fase, fecha)
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def set_resultado(partido_id, goles_local, goles_visitante):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE partidos SET goles_local=%s, goles_visitante=%s WHERE id=%s",
+        (goles_local, goles_visitante, partido_id)
+    )
+    # Calcular puntos para todas las predicciones de este partido
+    cur.execute("SELECT id, pred_local, pred_visitante FROM predicciones WHERE partido_id=%s", (partido_id,))
+    preds = cur.fetchall()
+    for pred_id, pl, pv in preds:
+        puntos = calcular_puntos(pl, pv, goles_local, goles_visitante)
+        cur.execute("UPDATE predicciones SET puntos=%s WHERE id=%s", (puntos, pred_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def save_prediccion(usuario, partido_id, pred_local, pred_visitante):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO predicciones (usuario, partido_id, pred_local, pred_visitante)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (usuario, partido_id)
+        DO UPDATE SET pred_local=EXCLUDED.pred_local, pred_visitante=EXCLUDED.pred_visitante
+    """, (usuario, partido_id, pred_local, pred_visitante))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def get_predicciones_usuario(usuario):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT p.equipo_local, p.equipo_visitante, p.goles_local, p.goles_visitante,
+               pr.pred_local, pr.pred_visitante, pr.puntos
+        FROM predicciones pr
+        JOIN partidos p ON pr.partido_id = p.id
+        WHERE pr.usuario = %s
+        ORDER BY p.fecha
+    """, (usuario,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+def get_tabla_posiciones():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT usuario, SUM(puntos) as total
+        FROM predicciones
+        GROUP BY usuario
+        ORDER BY total DESC
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+def calcular_puntos(pred_l, pred_v, real_l, real_v):
+    if pred_l == real_l and pred_v == real_v:
+        return 3  # Resultado exacto
+    pred_ganador = "L" if pred_l > pred_v else ("V" if pred_v > pred_l else "E")
+    real_ganador = "L" if real_l > real_v else ("V" if real_v > real_l else "E")
+    if pred_ganador == real_ganador:
+        return 1  # Solo acertó ganador/empate
+    return 0
+
+# ─── Inicializar DB ────────────────────────────────────────────────────────────
+try:
+    init_db()
+except Exception as e:
+    st.error(f"❌ Error conectando a la base de datos: {e}")
+    st.stop()
+
+# ─── Interfaz ──────────────────────────────────────────────────────────────────
+st.title("⚽ Quiniela del Mundial")
+st.markdown("---")
+
+# Menú de navegación
+menu = st.sidebar.selectbox("📋 Menú", [
+    "🏆 Tabla de posiciones",
+    "🎯 Hacer mis predicciones",
+    "📊 Ver mis resultados",
+    "⚙️ Admin: Cargar partidos",
+    "✅ Admin: Ingresar resultados"
+])
+
+# ── 1. TABLA DE POSICIONES ─────────────────────────────────────────────────────
+if menu == "🏆 Tabla de posiciones":
+    st.header("🏆 Tabla de Posiciones")
+    tabla = get_tabla_posiciones()
+    if not tabla:
+        st.info("Aún no hay predicciones registradas.")
+    else:
+        for i, (usuario, total) in enumerate(tabla):
+            medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"{i+1}."
+            col1, col2 = st.columns([3, 1])
+            col1.markdown(f"**{medal} {usuario}**")
+            col2.markdown(f"**{total} pts**")
+    
+    st.markdown("---")
+    st.caption("🟢 3 pts = resultado exacto | 🟡 1 pt = ganador correcto | ⚫ 0 pts = fallo")
+
+# ── 2. HACER PREDICCIONES ──────────────────────────────────────────────────────
+elif menu == "🎯 Hacer mis predicciones":
+    st.header("🎯 Hacer mis Predicciones")
+    nombre = st.text_input("👤 Tu nombre", placeholder="Ej: Carlos")
+    
+    if nombre:
+        partidos = get_partidos()
+        partidos_sin_resultado = [p for p in partidos if p[5] is None]  # goles_visitante es None
+        
+        if not partidos_sin_resultado:
+            st.info("No hay partidos pendientes por predecir.")
+        else:
+            st.markdown(f"Hola **{nombre}** 👋, ingresa tus predicciones:")
+            for partido in partidos_sin_resultado:
+                pid, local, visitante, gl, gv, fase, fecha = partido
+                with st.expander(f"⚽ {local} vs {visitante} — {fase}"):
+                    c1, c2, c3 = st.columns([2, 1, 2])
+                    c1.markdown(f"**{local}**")
+                    pred_l = c2.number_input("", min_value=0, max_value=20, key=f"l_{pid}", label_visibility="collapsed")
+                    c3.markdown(f"**{visitante}**")
+                    pred_v = st.number_input("Goles visitante", min_value=0, max_value=20, key=f"v_{pid}", label_visibility="collapsed")
+                    
+                    if st.button(f"💾 Guardar predicción", key=f"btn_{pid}"):
+                        save_prediccion(nombre, pid, pred_l, pred_v)
+                        st.success(f"✅ Guardado: {local} {pred_l} - {pred_v} {visitante}")
+
+# ── 3. VER MIS RESULTADOS ─────────────────────────────────────────────────────
+elif menu == "📊 Ver mis resultados":
+    st.header("📊 Mis Resultados")
+    nombre = st.text_input("👤 Tu nombre", placeholder="Ej: Carlos")
+    
+    if nombre:
+        preds = get_predicciones_usuario(nombre)
+        if not preds:
+            st.info("No tienes predicciones registradas aún.")
+        else:
+            total = 0
+            for local, visitante, gl, gv, pl, pv, puntos in preds:
+                resultado_real = f"{gl}-{gv}" if gl is not None else "Pendiente"
+                color = "🟢" if puntos == 3 else "🟡" if puntos == 1 else "⚫" if gl is not None else "⏳"
+                st.markdown(f"{color} **{local} vs {visitante}** | Tu pred: {pl}-{pv} | Real: {resultado_real} | **{puntos} pts**")
+                total += puntos
+            st.markdown(f"---\n### Total: **{total} puntos**")
+
+# ── 4. ADMIN: CARGAR PARTIDOS ─────────────────────────────────────────────────
+elif menu == "⚙️ Admin: Cargar partidos":
+    st.header("⚙️ Cargar Partidos")
+    st.warning("Esta sección es solo para el administrador.")
+    
+    with st.form("form_partido"):
+        col1, col2 = st.columns(2)
+        local = col1.text_input("Equipo Local")
+        visitante = col2.text_input("Equipo Visitante")
+        fase = st.selectbox("Fase", ["Grupo A", "Grupo B", "Grupo C", "Grupo D", "Grupo E", "Grupo F", "Grupo G", "Grupo H", "Octavos", "Cuartos", "Semifinal", "Tercer lugar", "Final"])
+        fecha = st.date_input("Fecha del partido")
+        submitted = st.form_submit_button("➕ Agregar partido")
+        
+        if submitted and local and visitante:
+            add_partido(local, visitante, fase, fecha)
+            st.success(f"✅ Partido {local} vs {visitante} agregado.")
+    
+    st.markdown("### Partidos cargados:")
+    for p in get_partidos():
+        st.markdown(f"- ID {p[0]}: **{p[1]} vs {p[2]}** — {p[5]} — {p[6].strftime('%d/%m/%Y') if hasattr(p[6], 'strftime') else p[6]}")
+
+# ── 5. ADMIN: INGRESAR RESULTADOS ─────────────────────────────────────────────
+elif menu == "✅ Admin: Ingresar resultados":
+    st.header("✅ Ingresar Resultados Reales")
+    st.warning("Esta sección es solo para el administrador.")
+    
+    partidos = get_partidos()
+    pendientes = [p for p in partidos if p[3] is None]
+    
+    if not pendientes:
+        st.info("Todos los partidos tienen resultado.")
+    else:
+        for partido in pendientes:
+            pid, local, visitante, _, _, fase, fecha = partido
+            with st.expander(f"⚽ {local} vs {visitante} ({fase})"):
+                c1, c2 = st.columns(2)
+                gl = c1.number_input(f"Goles {local}", min_value=0, max_value=20, key=f"rgl_{pid}")
+                gv = c2.number_input(f"Goles {visitante}", min_value=0, max_value=20, key=f"rgv_{pid}")
+                if st.button("✅ Guardar resultado", key=f"rbtn_{pid}"):
+                    set_resultado(pid, gl, gv)
+                    st.success(f"✅ Resultado guardado: {local} {gl} - {gv} {visitante}")
+                    st.rerun()
