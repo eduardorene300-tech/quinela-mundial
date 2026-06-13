@@ -378,16 +378,27 @@ def init_db():
             WHERE NOT EXISTS (SELECT 1 FROM jugadores WHERE email = 'admin@quiniela.com')
         """, (admin_pass,))
 
-        # Solo cargar partidos si la tabla está vacía
-        cur.execute("SELECT COUNT(*) FROM partidos")
-        count = cur.fetchone()[0]
-
-        if count == 0:
-            for local, visitante, fase, fecha_str, hora in TODOS_LOS_PARTIDOS:
+        # ── Sincronizar partidos del código con la BD ──────────────────────
+        # Inserta si no existe, actualiza fecha/hora si cambió.
+        # NUNCA toca goles ni predicciones.
+        for local, visitante, fase, fecha_str, hora in TODOS_LOS_PARTIDOS:
+            cur.execute("""
+                SELECT id, fecha::text, hora FROM partidos
+                WHERE equipo_local = %s AND equipo_visitante = %s AND fase = %s
+            """, (local, visitante, fase))
+            row = cur.fetchone()
+            if row is None:
                 cur.execute("""
                     INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
                     VALUES (%s, %s, %s, %s, %s)
                 """, (local, visitante, fase, fecha_str, hora))
+            else:
+                pid, fecha_bd, hora_bd = row
+                if fecha_bd != fecha_str or hora_bd != hora:
+                    cur.execute(
+                        "UPDATE partidos SET fecha = %s, hora = %s WHERE id = %s",
+                        (fecha_str, hora, pid)
+                    )
 
     conn.commit()
 
