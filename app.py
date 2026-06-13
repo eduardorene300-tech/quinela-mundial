@@ -378,31 +378,15 @@ def init_db():
             WHERE NOT EXISTS (SELECT 1 FROM jugadores WHERE email = 'admin@quiniela.com')
         """, (admin_pass,))
 
-        # ── Sincronizar partidos del código con la BD ──────────────────────
-        # 1 sola query para leer todo, luego inserts/updates solo si hay diferencia.
-        cur.execute("""
-            SELECT equipo_local, equipo_visitante, fase, fecha::text, hora, id
-            FROM partidos WHERE fase NOT LIKE '%Final%' OR fase LIKE 'Grupo%'
-                             OR fase IN ('16avos de Final','Octavos de Final',
-                                         'Cuartos de Final','Semifinal',
-                                         'Tercer Lugar','Final')
-        """)
-        bd = {(r[0], r[1], r[2]): (r[3], r[4], r[5]) for r in cur.fetchall()}
-
-        for local, visitante, fase, fecha_str, hora in TODOS_LOS_PARTIDOS:
-            key = (local, visitante, fase)
-            if key not in bd:
+        # Solo insertar si la tabla está vacía
+        cur.execute("SELECT COUNT(*) FROM partidos")
+        count = cur.fetchone()[0]
+        if count == 0:
+            for local, visitante, fase, fecha_str, hora in TODOS_LOS_PARTIDOS:
                 cur.execute("""
                     INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
                     VALUES (%s, %s, %s, %s, %s)
                 """, (local, visitante, fase, fecha_str, hora))
-            else:
-                fecha_bd, hora_bd, pid = bd[key]
-                if fecha_bd != fecha_str or hora_bd != hora:
-                    cur.execute(
-                        "UPDATE partidos SET fecha = %s, hora = %s WHERE id = %s",
-                        (fecha_str, hora, pid)
-                    )
 
     conn.commit()
 
@@ -597,13 +581,18 @@ def add_partido(local, visitante, fase, fecha, hora):
 # INICIALIZAR
 # ════════════════════════════════════════════════════════════════════════════════
 
-if "db_initialized" not in st.session_state:
+@st.cache_resource
+def _init_db_once():
     try:
         init_db()
-        st.session_state.db_initialized = True
+        return True
     except Exception as e:
-        st.error(f"Error de base de datos: {e}")
-        st.stop()
+        return str(e)
+
+_result = _init_db_once()
+if _result is not True:
+    st.error(f"Error de base de datos: {_result}")
+    st.stop()
 
 # ─── ESTADO DE SESIÓN ──────────────────────────────────────────────────────────
 if "user_id" not in st.session_state:
@@ -912,3 +901,5 @@ if st.session_state.is_admin and admin_menu == "➕ Partido":
                     st.error(f"Error: {err}")
             else:
                 st.error("Completa todos los campos")
+
+
