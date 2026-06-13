@@ -379,21 +379,25 @@ def init_db():
         """, (admin_pass,))
 
         # ── Sincronizar partidos del código con la BD ──────────────────────
-        # Inserta si no existe, actualiza fecha/hora si cambió.
-        # NUNCA toca goles ni predicciones.
+        # 1 sola query para leer todo, luego inserts/updates solo si hay diferencia.
+        cur.execute("""
+            SELECT equipo_local, equipo_visitante, fase, fecha::text, hora, id
+            FROM partidos WHERE fase NOT LIKE '%Final%' OR fase LIKE 'Grupo%'
+                             OR fase IN ('16avos de Final','Octavos de Final',
+                                         'Cuartos de Final','Semifinal',
+                                         'Tercer Lugar','Final')
+        """)
+        bd = {(r[0], r[1], r[2]): (r[3], r[4], r[5]) for r in cur.fetchall()}
+
         for local, visitante, fase, fecha_str, hora in TODOS_LOS_PARTIDOS:
-            cur.execute("""
-                SELECT id, fecha::text, hora FROM partidos
-                WHERE equipo_local = %s AND equipo_visitante = %s AND fase = %s
-            """, (local, visitante, fase))
-            row = cur.fetchone()
-            if row is None:
+            key = (local, visitante, fase)
+            if key not in bd:
                 cur.execute("""
                     INSERT INTO partidos (equipo_local, equipo_visitante, fase, fecha, hora)
                     VALUES (%s, %s, %s, %s, %s)
                 """, (local, visitante, fase, fecha_str, hora))
             else:
-                pid, fecha_bd, hora_bd = row
+                fecha_bd, hora_bd, pid = bd[key]
                 if fecha_bd != fecha_str or hora_bd != hora:
                     cur.execute(
                         "UPDATE partidos SET fecha = %s, hora = %s WHERE id = %s",
