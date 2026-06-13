@@ -597,11 +597,13 @@ def add_partido(local, visitante, fase, fecha, hora):
 # INICIALIZAR
 # ════════════════════════════════════════════════════════════════════════════════
 
-try:
-    init_db()
-except Exception as e:
-    st.error(f"Error de base de datos: {e}")
-    st.stop()
+if "db_initialized" not in st.session_state:
+    try:
+        init_db()
+        st.session_state.db_initialized = True
+    except Exception as e:
+        st.error(f"Error de base de datos: {e}")
+        st.stop()
 
 # ─── ESTADO DE SESIÓN ──────────────────────────────────────────────────────────
 if "user_id" not in st.session_state:
